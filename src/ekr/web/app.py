@@ -10,12 +10,28 @@ import os
 from dotenv import load_dotenv
 from flask import Flask, redirect, render_template, request, url_for
 
+from ..asr import from_env as asr_from_env
 from ..llm import from_env
 from ..models import Confidence, KnowledgeType
 from ..storage import Storage
 from ..structurer import structure_transcript
 
 load_dotenv()
+
+
+def _transcribe_upload(file_storage) -> str:
+    """把上傳音檔存到暫存檔後轉文字。"""
+    import os
+    import tempfile
+
+    suffix = os.path.splitext(file_storage.filename)[1] or ".wav"
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    try:
+        file_storage.save(path)
+        return asr_from_env().transcribe(path).strip()
+    finally:
+        os.remove(path)
 
 
 def create_app(storage: Storage | None = None) -> Flask:
@@ -38,9 +54,18 @@ def create_app(storage: Storage | None = None) -> Flask:
         if request.method == "POST":
             transcript = request.form.get("逐字稿", "").strip()
             更新人 = request.form.get("更新人", "").strip() or "匿名"
+            # 語音輸入（Phase 2）：若上傳音檔則先轉文字，再走同一結構化流程
+            audio = request.files.get("音檔")
+            if audio and audio.filename:
+                try:
+                    transcript = _transcribe_upload(audio)
+                except Exception as e:  # noqa: BLE001
+                    return render_template(
+                        "submit.html", error=f"語音轉文字失敗：{e}", 更新人=更新人
+                    )
             if not transcript:
                 return render_template(
-                    "submit.html", error="請輸入逐字稿或描述內容", 更新人=更新人
+                    "submit.html", error="請輸入逐字稿、描述內容，或上傳音檔", 更新人=更新人
                 )
             try:
                 card = structure_transcript(transcript, from_env(), 更新人)

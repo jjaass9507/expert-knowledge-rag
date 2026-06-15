@@ -4,3 +4,6 @@ requests
 flask
 python-dotenv
 pytest
+
+# Phase 2 語音轉文字（本地 GPU/CPU 環境再安裝；延遲匯入，未裝不影響純文字流程）
+# faster-whisper
