@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from ekr.llm import StubLLM
@@ -51,9 +53,22 @@ def test_extracts_json_when_wrapped_in_prose():
     assert card.標題 == "電流偏高但壓力正常"
 
 
+def test_unwraps_one_level_wrapper():
+    wrapped = '{"output": ' + json.dumps(GOOD_JSON) + "}"
+    card = structure_transcript("x", StubLLM(wrapped), "技師")
+    assert card.標題 == "電流偏高但壓力正常"
+
+
 def test_unparseable_output_surfaces_raw_in_error():
     llm = StubLLM("抱歉，我無法處理這個請求。")
     with pytest.raises(ValueError, match="原始輸出"):
+        structure_transcript("x", llm, "技師", max_retries=0)
+
+
+def test_missing_fields_surfaces_keys_and_raw():
+    # 解析成 dict 但鍵不符（例如英文鍵）
+    llm = StubLLM('{"title": "x", "content": "y"}')
+    with pytest.raises(ValueError, match="解析到的鍵"):
         structure_transcript("x", llm, "技師", max_retries=0)
 
 

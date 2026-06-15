@@ -55,6 +55,11 @@ def _extract_json_object(text: str) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
+def _pick_fields(data: dict) -> dict:
+    """只取 LLM 應負責的欄位，忽略多餘鍵。"""
+    return {k: data[k] for k in LLM_FIELDS if k in data}
+
+
 def _parse_llm_fields(raw: str) -> dict:
     text = _strip_fence(raw or "")
     # yaml.safe_load 相容 JSON（JSON 為 YAML 子集）。
@@ -65,13 +70,29 @@ def _parse_llm_fields(raw: str) -> dict:
     # 退而求其次：模型可能在 JSON 前後夾帶說明文字，擷取第一個 {...} 物件。
     if not isinstance(data, dict):
         data = _extract_json_object(text)
-    if not isinstance(data, dict):
-        snippet = (raw or "").strip()
-        if len(snippet) > 500:
-            snippet = snippet[:500] + "…（已截斷）"
-        raise ValueError(f"LLM 輸出無法解析為 JSON 物件。原始輸出：{snippet!r}")
-    # 只取 LLM 應負責的欄位，忽略多餘鍵。
-    return {k: data[k] for k in LLM_FIELDS if k in data}
+
+    if isinstance(data, dict):
+        fields = _pick_fields(data)
+        if fields:
+            return fields
+        # 欄位可能被包一層（例如 {"output": "{...}"} 或巢狀物件），嘗試解開後再取。
+        for v in data.values():
+            inner = v if isinstance(v, dict) else (
+                _extract_json_object(v) if isinstance(v, str) else None
+            )
+            if isinstance(inner, dict):
+                fields = _pick_fields(inner)
+                if fields:
+                    return fields
+
+    snippet = (raw or "").strip()
+    if len(snippet) > 500:
+        snippet = snippet[:500] + "…（已截斷）"
+    found = list(data.keys()) if isinstance(data, dict) else None
+    raise ValueError(
+        f"LLM 輸出缺少預期欄位（標題/內容/知識類型/信心等級）。"
+        f"解析到的鍵：{found}。原始輸出：{snippet!r}"
+    )
 
 
 def _generate(
