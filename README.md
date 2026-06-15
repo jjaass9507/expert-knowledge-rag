@@ -22,7 +22,7 @@
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env          # 填入 LLM API 端點；離線可設 EKR_LLM=stub
+cp .env.example .env          # 填入 Pensieve 端點/token；離線可設 EKR_LLM=stub
 python run.py                 # http://localhost:8000
 ```
 
@@ -39,7 +39,7 @@ python -m pytest -q
 ## 模組
 
 - `src/ekr/models.py` — 知識卡片 schema（pydantic，單一來源）
-- `src/ekr/llm.py` — LLM adapter（API / Stub）
+- `src/ekr/llm.py` — LLM adapter（內部 Pensieve API / Stub）
 - `src/ekr/structurer.py` — 逐字稿 → 卡片（驗證 + 重試）
 - `src/ekr/storage.py` — SQLite 佇列 + 核准寫出
 - `src/ekr/web/` — Flask 校稿台審核介面

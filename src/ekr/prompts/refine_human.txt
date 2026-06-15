@@ -1,0 +1,8 @@
+原始逐字稿：
+{transcript}
+
+目前卡片：
+{current}
+
+審核者補充說明：
+{feedback}

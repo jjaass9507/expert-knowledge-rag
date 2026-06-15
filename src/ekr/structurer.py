@@ -23,12 +23,14 @@ def _load_prompt(name: str) -> str:
     return (_PROMPTS_DIR / name).read_text(encoding="utf-8")
 
 
-def _assemble_prompt(transcript: str) -> str:
-    return _load_prompt("structure_card.txt").replace("{transcript}", transcript)
+def _structure_prompts(transcript: str) -> tuple[str, str]:
+    system = _load_prompt("structure_system.txt")
+    human = _load_prompt("structure_human.txt").replace("{transcript}", transcript)
+    return system, human
 
 
 def _strip_fence(text: str) -> str:
-    """移除模型偶爾加上的 ``` 或 ```yaml 圍欄。"""
+    """移除模型偶爾加上的 ``` 或 ```json 圍欄。"""
     t = text.strip()
     if t.startswith("```"):
         lines = t.splitlines()
@@ -40,28 +42,31 @@ def _strip_fence(text: str) -> str:
 
 
 def _parse_llm_fields(raw: str) -> dict:
+    # yaml.safe_load 相容 JSON（JSON 為 YAML 子集）。
     data = yaml.safe_load(_strip_fence(raw))
     if not isinstance(data, dict):
-        raise ValueError("LLM 輸出不是 YAML 物件")
+        raise ValueError("LLM 輸出不是 JSON 物件")
     # 只取 LLM 應負責的欄位，忽略多餘鍵。
     return {k: data[k] for k in LLM_FIELDS if k in data}
 
 
-def _generate(llm: LLM, base_prompt: str, provenance: dict, max_retries: int) -> KnowledgeCard:
+def _generate(
+    llm: LLM, system: str, human: str, provenance: dict, max_retries: int
+) -> KnowledgeCard:
     """共用流程：呼叫 LLM、解析六欄、注入 provenance、驗證、失敗回饋重試。"""
-    prompt = base_prompt
+    current_human = human
     last_err: Exception | None = None
     for attempt in range(max_retries + 1):
-        raw = llm.complete(prompt)
+        raw = llm.complete(system, current_human)
         try:
             fields = _parse_llm_fields(raw)
             return KnowledgeCard(**provenance, **fields)
         except (ValidationError, ValueError, yaml.YAMLError) as e:
             last_err = e
             if attempt < max_retries:
-                prompt = (
-                    base_prompt
-                    + f"\n\n上一次輸出無法解析或驗證失敗，錯誤：{e}\n請只輸出合法 YAML，並嚴格遵守欄位與列舉值要求。"
+                current_human = (
+                    human
+                    + f"\n\n上一次輸出無法解析或驗證失敗，錯誤：{e}\n請只輸出合法 JSON 物件，並嚴格遵守欄位與列舉值要求。"
                 )
     raise ValueError(f"結構化失敗（已重試 {max_retries} 次）：{last_err}")
 
@@ -80,7 +85,8 @@ def structure_transcript(
         "更新人": 更新人,
         "最後更新": now or date.today().isoformat(),
     }
-    return _generate(llm, _assemble_prompt(transcript), provenance, max_retries)
+    system, human = _structure_prompts(transcript)
+    return _generate(llm, system, human, provenance, max_retries)
 
 
 def refine_card(
@@ -96,8 +102,9 @@ def refine_card(
         f"{k}: {d[k]}"
         for k in ("標題", "內容", "標籤", "知識類型", "適用範圍", "信心等級")
     )
-    base_prompt = (
-        _load_prompt("refine_card.txt")
+    system = _load_prompt("refine_system.txt")
+    human = (
+        _load_prompt("refine_human.txt")
         .replace("{transcript}", card.原始逐字稿)
         .replace("{current}", current)
         .replace("{feedback}", feedback)
@@ -108,4 +115,4 @@ def refine_card(
         "更新人": card.更新人,
         "最後更新": now or date.today().isoformat(),
     }
-    return _generate(llm, base_prompt, provenance, max_retries)
+    return _generate(llm, system, human, provenance, max_retries)
