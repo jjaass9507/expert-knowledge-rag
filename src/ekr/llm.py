@@ -50,8 +50,9 @@ class PensieveLLM:
             "empno": self.empno,
             "variables": {
                 "building": self.building,
-                "system_prompt": system,
-                "human_prompt": human,
+                # option 路由以 other_system_prompt / other_human_prompt 接收自訂 prompt
+                "other_system_prompt": system,
+                "other_human_prompt": human,
             },
         }
         resp = requests.post(

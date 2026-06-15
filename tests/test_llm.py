@@ -43,8 +43,8 @@ def test_pensieve_payload_and_result_parsing(monkeypatch):
     assert p["token"] == "T"
     assert p["empno"] == "E123"
     assert p["variables"]["building"] == "option"
-    assert p["variables"]["system_prompt"] == "系統指示"
-    assert p["variables"]["human_prompt"] == "使用者輸入"
+    assert p["variables"]["other_system_prompt"] == "系統指示"
+    assert p["variables"]["other_human_prompt"] == "使用者輸入"
     # 連線參數：停用 SSL 驗證與 proxies
     assert captured["kwargs"]["verify"] is False
     assert captured["kwargs"]["proxies"] == {"http": None, "https": None}
