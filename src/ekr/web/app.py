@@ -14,7 +14,7 @@ from ..asr import from_env as asr_from_env
 from ..llm import from_env
 from ..models import Confidence, KnowledgeType
 from ..storage import Storage
-from ..structurer import structure_transcript
+from ..structurer import refine_card, structure_transcript
 
 load_dotenv()
 
@@ -112,10 +112,15 @@ def create_app(storage: Storage | None = None) -> Flask:
         card = store.get(card_id)
         if card is None:
             return "找不到此卡片", 404
-        # 允許審核者補充逐字稿後重新結構化
-        transcript = request.form.get("原始逐字稿", "").strip() or card.原始逐字稿
+        # 先存下審核者當前的編輯，再依補充說明對話式重整理（Phase 4）
+        _save_edits(store, card_id, request.form)
+        card = store.get(card_id)
+        feedback = request.form.get("補充說明", "").strip()
         try:
-            new = structure_transcript(transcript, from_env(), card.更新人)
+            if feedback:
+                new = refine_card(card, feedback, from_env())
+            else:
+                new = structure_transcript(card.原始逐字稿, from_env(), card.更新人)
         except Exception as e:  # noqa: BLE001
             return render_template(
                 "review.html",
