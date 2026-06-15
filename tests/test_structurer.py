@@ -45,6 +45,18 @@ def test_always_bad_raises():
         structure_transcript("x", llm, "技師", max_retries=1)
 
 
+def test_extracts_json_when_wrapped_in_prose():
+    wrapped = "好的，以下是整理結果：\n" + GOOD_JSON + "\n希望有幫助。"
+    card = structure_transcript("x", StubLLM(wrapped), "技師")
+    assert card.標題 == "電流偏高但壓力正常"
+
+
+def test_unparseable_output_surfaces_raw_in_error():
+    llm = StubLLM("抱歉，我無法處理這個請求。")
+    with pytest.raises(ValueError, match="原始輸出"):
+        structure_transcript("x", llm, "技師", max_retries=0)
+
+
 def test_human_prompt_contains_transcript():
     system, human = _structure_prompts("這是逐字稿內容")
     assert "這是逐字稿內容" in human

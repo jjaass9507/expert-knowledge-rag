@@ -6,6 +6,8 @@ provenance 欄位（id / 原始逐字稿 / 更新人 / 最後更新）由程式�
 
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from datetime import date
 from pathlib import Path
@@ -41,11 +43,33 @@ def _strip_fence(text: str) -> str:
     return t.strip()
 
 
+def _extract_json_object(text: str) -> dict | None:
+    """從可能夾帶說明文字的輸出中擷取第一個 JSON 物件。"""
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
 def _parse_llm_fields(raw: str) -> dict:
+    text = _strip_fence(raw or "")
     # yaml.safe_load 相容 JSON（JSON 為 YAML 子集）。
-    data = yaml.safe_load(_strip_fence(raw))
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        data = None
+    # 退而求其次：模型可能在 JSON 前後夾帶說明文字，擷取第一個 {...} 物件。
     if not isinstance(data, dict):
-        raise ValueError("LLM 輸出不是 JSON 物件")
+        data = _extract_json_object(text)
+    if not isinstance(data, dict):
+        snippet = (raw or "").strip()
+        if len(snippet) > 500:
+            snippet = snippet[:500] + "…（已截斷）"
+        raise ValueError(f"LLM 輸出無法解析為 JSON 物件。原始輸出：{snippet!r}")
     # 只取 LLM 應負責的欄位，忽略多餘鍵。
     return {k: data[k] for k in LLM_FIELDS if k in data}
 
