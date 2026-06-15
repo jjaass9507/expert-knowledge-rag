@@ -176,6 +176,35 @@ a:hover { text-decoration: underline; }
 
 .desk-actions { margin-top: 20px; }
 
+/* 唯讀知識卡 */
+.card-view {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #fff;
+  padding: 24px 28px;
+  max-width: 760px;
+}
+.card-view h2 { margin: 0 0 16px; font-size: 20px; }
+.card-view dl {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 4px 16px;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+.card-view dt { color: var(--ink-dim); }
+.card-view dd { margin: 0; }
+.card-body {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+}
+.raw { margin-top: 16px; }
+.raw summary { cursor: pointer; color: var(--ink-dim); font-size: 13px; }
+.raw .transcript { padding: 8px 0 0; }
+.back { margin-top: 20px; font-size: 14px; }
+
 @media (max-width: 760px) {
   .desk-grid { grid-template-columns: 1fr; }
   .manuscript { border-right: none; border-bottom: 1px solid var(--line); }

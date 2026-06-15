@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block view %}知識卡{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1 class="mono">{{ card.id }}</h1>
+  <p class="meta">更新人 {{ card.更新人 }} · 最後更新 {{ card.最後更新 }}</p>
+</div>
+
+<article class="card-view">
+  <h2>{{ card.標題 }}</h2>
+  <dl>
+    <dt>知識類型</dt><dd>{{ card.知識類型.value }}</dd>
+    <dt>信心等級</dt><dd>{{ card.信心等級.value }}</dd>
+    <dt>適用範圍</dt><dd>{{ card.適用範圍 or '—' }}</dd>
+    <dt>標籤</dt><dd>{{ card.標籤 | join('、') or '—' }}</dd>
+  </dl>
+  <div class="card-body">{{ card.內容 }}</div>
+
+  <details class="raw">
+    <summary>原始逐字稿</summary>
+    <blockquote class="transcript">{{ card.原始逐字稿 }}</blockquote>
+  </details>
+</article>
+
+<p class="back"><a href="{{ url_for('library') }}">← 回知識卡目錄</a></p>
+{% endblock %}

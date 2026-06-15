@@ -53,6 +53,18 @@ def create_app(storage: Storage | None = None) -> Flask:
             "list.html", pending=pending, approved_count=len(approved)
         )
 
+    @app.route("/library")
+    def library():
+        approved = store.list_by_status("approved")
+        return render_template("library.html", cards=approved)
+
+    @app.route("/library/<card_id>")
+    def card_detail(card_id):
+        card = store.get(card_id)
+        if card is None:
+            return "找不到此卡片", 404
+        return render_template("card.html", card=card)
+
     @app.route("/submit", methods=["GET", "POST"])
     def submit():
         if request.method == "POST":

@@ -9,12 +9,23 @@
 
 from __future__ import annotations
 
+import math
 import os
+from dataclasses import dataclass
 from typing import Protocol
 
 import requests
 
 from .models import KnowledgeCard
+
+
+@dataclass
+class Hit:
+    """一筆檢索結果。"""
+
+    id: str
+    score: float
+    metadata: dict
 
 
 def build_embedding_text(card: KnowledgeCard) -> str:
@@ -82,6 +93,10 @@ class StubEmbedding:
 class VectorStore(Protocol):
     def upsert(self, card_id: str, vector: list[float], metadata: dict) -> None: ...
 
+    def search(
+        self, vector: list[float], top_k: int = 5, 知識類型: str | None = None
+    ) -> list[Hit]: ...
+
 
 class QdrantStore:
     def __init__(self, url: str, collection: str, dim: int):
@@ -104,15 +119,51 @@ class QdrantStore:
             points=[PointStruct(id=_uuid_from_id(card_id), vector=vector, payload={**metadata, "id": card_id})],
         )
 
+    def search(
+        self, vector: list[float], top_k: int = 5, 知識類型: str | None = None
+    ) -> list[Hit]:
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+        flt = None
+        if 知識類型:
+            flt = Filter(
+                must=[FieldCondition(key="知識類型", match=MatchValue(value=知識類型))]
+            )
+        results = self.client.search(
+            self.collection, query_vector=vector, limit=top_k, query_filter=flt
+        )
+        return [
+            Hit(id=r.payload.get("id", str(r.id)), score=r.score, metadata=r.payload)
+            for r in results
+        ]
+
 
 class InMemoryStore:
-    """測試用：保存 upsert 過的向量與 metadata。"""
+    """測試用：保存 upsert 過的向量與 metadata，並做 cosine 檢索。"""
 
     def __init__(self):
         self.points: dict[str, tuple[list[float], dict]] = {}
 
     def upsert(self, card_id: str, vector: list[float], metadata: dict) -> None:
         self.points[card_id] = (vector, metadata)
+
+    def search(
+        self, vector: list[float], top_k: int = 5, 知識類型: str | None = None
+    ) -> list[Hit]:
+        hits = []
+        for cid, (vec, md) in self.points.items():
+            if 知識類型 and md.get("知識類型") != 知識類型:
+                continue
+            hits.append(Hit(id=cid, score=_cosine(vector, vec), metadata=md))
+        hits.sort(key=lambda h: h.score, reverse=True)
+        return hits[:top_k]
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
 
 
 def index_card(card: KnowledgeCard, embedding: Embedding, store: VectorStore) -> None:
@@ -121,16 +172,43 @@ def index_card(card: KnowledgeCard, embedding: Embedding, store: VectorStore) ->
     store.upsert(card.id, vector, build_metadata(card))
 
 
+def retrieve(
+    query: str,
+    embedding: Embedding,
+    store: VectorStore,
+    top_k: int = 5,
+    知識類型: str | None = None,
+) -> list[Hit]:
+    """RAG 檢索：把查詢字串轉向量後在知識庫搜尋；可依知識類型做 metadata filter。
+
+    供 8-step Agent Framework 的 Tier 2 檢索節點呼叫（例如異常診斷場景傳 知識類型='診斷'）。
+    """
+    return store.search(embedding.embed(query), top_k=top_k, 知識類型=知識類型)
+
+
 def _uuid_from_id(card_id: str) -> str:
     import uuid
 
     return str(uuid.uuid5(uuid.NAMESPACE_URL, card_id))
 
 
-def indexer_from_env():
-    """回傳一個 on_approve(card) 函式；EKR_VECTOR=off 時回傳 None（不向量化）。"""
-    if os.environ.get("EKR_VECTOR", "off").lower() == "off":
-        return None
+def reindex_jsonl(path, embedding: Embedding, store: VectorStore) -> int:
+    """從 approved cards.jsonl 回填/重建向量庫，回傳索引筆數。"""
+    import json
+
+    n = 0
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            index_card(KnowledgeCard(**json.loads(line)), embedding, store)
+            n += 1
+    return n
+
+
+def build_embedding_store() -> tuple[Embedding, VectorStore]:
+    """依環境變數建立 (embedding, store)，供 indexer / reindex / search 共用。"""
     embedding = ApiEmbedding(
         url=os.environ["EMBEDDING_API_URL"],
         model=os.environ.get("EMBEDDING_MODEL", "bge-m3"),
@@ -141,4 +219,12 @@ def indexer_from_env():
         collection=os.environ.get("QDRANT_COLLECTION", "knowledge_cards"),
         dim=int(os.environ.get("EMBEDDING_DIM", "1024")),
     )
+    return embedding, store
+
+
+def indexer_from_env():
+    """回傳一個 on_approve(card) 函式；EKR_VECTOR=off 時回傳 None（不向量化）。"""
+    if os.environ.get("EKR_VECTOR", "off").lower() == "off":
+        return None
+    embedding, store = build_embedding_store()
     return lambda card: index_card(card, embedding, store)
