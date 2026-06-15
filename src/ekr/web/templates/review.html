@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block view %}校稿{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1 class="mono">{{ card.id }}</h1>
+  <p class="meta">更新人 {{ card.更新人 }} · 最後更新 {{ card.最後更新 }}</p>
+</div>
+
+{% if error %}<p class="notice-error">{{ error }}</p>{% endif %}
+
+<form method="post" action="{{ url_for('approve', card_id=card.id) }}" class="desk">
+  <div class="desk-grid">
+    <!-- 左：原始逐字稿 -->
+    <section class="manuscript">
+      <div class="pane-head">
+        <span class="pane-title">原始逐字稿</span>
+      </div>
+      <blockquote class="transcript">{{ card.原始逐字稿 }}</blockquote>
+    </section>
+
+    <!-- 右：結構化卡片（可編輯） -->
+    <section class="cardform">
+      <div class="pane-head">
+        <span class="pane-title">結構化卡片</span>
+      </div>
+
+      <label class="field">
+        <span class="label">標題</span>
+        <input type="text" name="標題" value="{{ card.標題 }}">
+      </label>
+
+      <label class="field">
+        <span class="label">內容</span>
+        <textarea name="內容" rows="8">{{ card.內容 }}</textarea>
+      </label>
+
+      <label class="field">
+        <span class="label">標籤<span class="hint">逗號分隔</span></span>
+        <input type="text" name="標籤" value="{{ card.標籤 | join(', ') }}">
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="label">知識類型</span>
+          <select name="知識類型">
+            {% for t in knowledge_types %}
+            <option value="{{ t }}" {% if t == card.知識類型.value %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span class="label">信心等級</span>
+          <select name="信心等級">
+            {% for c in confidences %}
+            <option value="{{ c }}" {% if c == card.信心等級.value %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <label class="field">
+        <span class="label">適用範圍<span class="hint">機型 / 系統 / 情境</span></span>
+        <input type="text" name="適用範圍" value="{{ card.適用範圍 }}">
+      </label>
+    </section>
+  </div>
+
+  <div class="actions desk-actions">
+    <button type="submit" class="btn-primary">確認，加入知識庫</button>
+    <button type="submit" formaction="{{ url_for('restructure', card_id=card.id) }}" class="btn-ghost">退回重整理</button>
+    <button type="submit" formaction="{{ url_for('reject', card_id=card.id) }}" class="btn-ghost danger">退件</button>
+  </div>
+</form>
+{% endblock %}

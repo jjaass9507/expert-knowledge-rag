@@ -1,0 +1,6 @@
+pydantic>=2
+pyyaml
+requests
+flask
+python-dotenv
+pytest

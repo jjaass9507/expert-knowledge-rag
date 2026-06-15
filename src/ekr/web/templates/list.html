@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block view %}待校稿{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1>待校稿</h1>
+  <p class="meta">待審 {{ pending|length }} · 已定稿 {{ approved_count }}</p>
+</div>
+
+{% if pending %}
+<table class="ledger">
+  <thead>
+    <tr>
+      <th class="col-id">編號</th>
+      <th>標題</th>
+      <th class="col-type">知識類型</th>
+      <th class="col-conf">信心</th>
+      <th class="col-user">更新人</th>
+      <th class="col-date">最後更新</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in pending %}
+    <tr onclick="location.href='{{ url_for('review', card_id=c.id) }}'">
+      <td class="mono">{{ c.id }}</td>
+      <td>{{ c.標題 }}</td>
+      <td>{{ c.知識類型.value }}</td>
+      <td>{{ c.信心等級.value }}</td>
+      <td>{{ c.更新人 }}</td>
+      <td class="mono dim">{{ c.最後更新 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">目前沒有待校稿的卡片。<a href="{{ url_for('submit') }}">新增一筆口述</a>。</p>
+{% endif %}
+{% endblock %}
