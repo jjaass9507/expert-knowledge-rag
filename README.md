@@ -15,7 +15,7 @@
 |---|---|---|
 | Phase 1 | 文字表單 + LLM 結構化 + Flask 校稿台審核 | ✅ 已完成 |
 | Phase 2 | 語音輸入 + Whisper ASR | ✅ 已完成 |
-| Phase 3 | 向量化 pipeline（embedding + Qdrant/Chroma） | 規劃中 |
+| Phase 3 | 向量化 pipeline（embedding + Qdrant） | ✅ 已完成 |
 | Phase 4 | 對話式「退回重整理」 | 規劃中 |
 
 ## 快速開始

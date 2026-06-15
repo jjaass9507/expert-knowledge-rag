@@ -7,3 +7,6 @@ pytest
 
 # Phase 2 語音轉文字（本地 GPU/CPU 環境再安裝；延遲匯入，未裝不影響純文字流程）
 # faster-whisper
+
+# Phase 3 向量化（啟用 EKR_VECTOR=on 時再安裝；延遲匯入）
+# qdrant-client

@@ -36,7 +36,11 @@ def _transcribe_upload(file_storage) -> str:
 
 def create_app(storage: Storage | None = None) -> Flask:
     app = Flask(__name__)
-    store = storage or Storage()
+    if storage is None:
+        from ..vectorstore import indexer_from_env
+
+        storage = Storage(on_approve=indexer_from_env())
+    store = storage
 
     KNOWLEDGE_TYPES = [t.value for t in KnowledgeType]
     CONFIDENCES = [c.value for c in Confidence]

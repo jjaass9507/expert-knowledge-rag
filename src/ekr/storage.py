@@ -48,7 +48,10 @@ class Storage:
         self,
         db_path: Path | str = DEFAULT_DB,
         approved_dir: Path | str = DEFAULT_APPROVED_DIR,
+        on_approve=None,
     ):
+        # on_approve(card)：核准且寫出後觸發，供 Phase 3 向量化掛接（None 則略過）。
+        self.on_approve = on_approve
         self.db_path = Path(db_path)
         self.approved_dir = Path(approved_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,6 +138,8 @@ class Storage:
         card = KnowledgeCard(**card.model_dump())
         self._write_approved(card)
         self.set_status(card_id, "approved")
+        if self.on_approve is not None:
+            self.on_approve(card)
         return card
 
     def reject(self, card_id: str) -> None:
