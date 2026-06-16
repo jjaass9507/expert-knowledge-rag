@@ -154,6 +154,40 @@ def test_structure_transcripts_minimal_keys_with_defaults():
     assert cards[0].信心等級.value == "中"
 
 
+def test_two_stage_extract_then_structure():
+    from ekr.structurer import structure_transcripts
+
+    class TwoStage:
+        def __init__(self):
+            self.stages = []
+
+        def complete(self, system, human):
+            if "知識工程師" in system:  # 階段一：萃取知識單元
+                self.stages.append("extract")
+                return '{"知識": ["陳述A", "陳述B"]}'
+            self.stages.append("structure")  # 階段二：結構化成卡
+            return CARD_ARRAY
+
+    llm = TwoStage()
+    cards = structure_transcripts("一大段口述", llm, "Ken")
+    assert llm.stages == ["extract", "structure"]  # 兩階段都有跑
+    assert len(cards) == 2
+    assert cards[0].標題 == "調高源頭壓力會增加耗電"
+
+
+def test_falls_back_to_direct_when_no_units():
+    from ekr.structurer import structure_transcripts
+
+    class NoUnits:
+        def complete(self, system, human):
+            if "知識工程師" in system:
+                return '{"知識": []}'  # 萃取不到 → 後備直接結構化
+            return CARD_ARRAY
+
+    cards = structure_transcripts("x", NoUnits(), "K")
+    assert len(cards) == 2
+
+
 def test_structure_transcripts_single_object_wrapped():
     from ekr.structurer import structure_transcripts
     # 模型只回單一物件（非陣列）→ 包成一張卡

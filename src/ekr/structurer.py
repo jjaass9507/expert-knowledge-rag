@@ -326,23 +326,29 @@ def _snippet(raw: str, limit: int = 600) -> str:
     return f"{s[:limit]}…（已截斷）" if len(s) > limit else s
 
 
-def structure_transcripts(
-    transcript: str,
+def _extract_knowledge_units(transcript: str, llm: LLM, max_retries: int = 1) -> list[str]:
+    """階段一：判斷「何為知識」並萃取為可行動的知識陳述清單；失敗則回空清單（走後備）。"""
+    try:
+        sys = _load_prompt("knowledge_units_system.txt")
+        hum = _load_prompt("knowledge_units_human.txt").replace("{transcript}", transcript)
+        data = _call_json(llm, sys, hum, max_retries)
+        return _as_str_list(
+            data.get("知識") or data.get("知识") or data.get("knowledge") or data.get("units")
+        )
+    except (ValueError, yaml.YAMLError):
+        return []
+
+
+def _cards_from_array_call(
+    system: str,
+    base_human: str,
     llm: LLM,
+    transcript: str,
     更新人: str,
-    now: str | None = None,
-    max_retries: int = 1,
+    最後更新: str,
+    max_retries: int,
 ) -> list[KnowledgeCard]:
-    """解構一段口述為多張知識卡：一次呼叫產出卡片陣列，每個知識點各自成卡。
-
-    個別卡片缺欄位則略過，全部失敗才拋出。單一知識點則回傳一張卡。
-    """
-    最後更新 = now or date.today().isoformat()
-    system = _load_prompt("structure_multi_system.txt")
-    base_human = _load_prompt("structure_multi_human.txt").replace(
-        "{transcript}", transcript
-    )
-
+    """呼叫 LLM 取得卡片陣列並建成 KnowledgeCard；含正規化、補預設、缺欄位重試與診斷。"""
     human = base_human
     last_err: Exception | None = None
     last_keys = None
@@ -360,7 +366,6 @@ def structure_transcripts(
         cards: list[KnowledgeCard] = []
         for item in items:
             fields = _fill_defaults(_normalize_enums(_pick_card_fields(item)))
-            # 至少要有標題與內容才成卡；其餘可由預設補上交審核者完成。
             if not fields.get("標題") or not fields.get("內容"):
                 continue
             try:
@@ -377,7 +382,6 @@ def structure_transcripts(
                 last_err = e
         if cards:
             return cards
-        # 物件都缺欄位：記下實際鍵供診斷與重試提示
         last_keys = list(items[0].keys()) if items else None
         human = (
             base_human
@@ -390,6 +394,37 @@ def structure_transcripts(
             f"結構化失敗：卡片物件缺少預期欄位。物件實際鍵：{last_keys}。原始輸出：{_snippet(last_raw)}"
         )
     raise ValueError(f"結構化失敗：{last_err}。原始輸出：{_snippet(last_raw)}")
+
+
+def structure_transcripts(
+    transcript: str,
+    llm: LLM,
+    更新人: str,
+    now: str | None = None,
+    max_retries: int = 1,
+) -> list[KnowledgeCard]:
+    """兩階段把一段口述解構為多張知識卡：
+
+    階段一：萃取「可重複應用的知識」陳述（判斷何為知識、濾掉非知識）。
+    階段二：把每條知識陳述結構化為一張可存入 RAG 的自足知識卡。
+    若階段一萃取不到知識，後備為直接從逐字稿結構化。
+    """
+    最後更新 = now or date.today().isoformat()
+    units = _extract_knowledge_units(transcript, llm, max_retries)
+    if units:
+        system = _load_prompt("structure_units_system.txt")
+        base_human = _load_prompt("structure_units_human.txt").replace(
+            "{units}", "\n".join(f"{i}. {u}" for i, u in enumerate(units, 1))
+        )
+    else:
+        # 後備：直接從逐字稿產卡
+        system = _load_prompt("structure_multi_system.txt")
+        base_human = _load_prompt("structure_multi_human.txt").replace(
+            "{transcript}", transcript
+        )
+    return _cards_from_array_call(
+        system, base_human, llm, transcript, 更新人, 最後更新, max_retries
+    )
 
 
 def refine_card(
