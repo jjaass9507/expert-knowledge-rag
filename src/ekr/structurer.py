@@ -27,10 +27,11 @@ from .models import (
 _VALID_TYPES = {t.value for t in KnowledgeType}
 _VALID_CONF = {c.value for c in Confidence}
 
-# 欄位鍵別名 → 正規中文鍵（容忍簡體中文與英文鍵）。
+# 欄位鍵別名 → 正規中文鍵（容忍簡體中文與英文鍵，以及常見的精簡命名）。
 _KEY_ALIASES = {
-    "标题": "標題", "title": "標題",
-    "内容": "內容", "content": "內容",
+    "标题": "標題", "title": "標題", "知識點": "標題", "知识点": "標題", "主題": "標題",
+    "内容": "內容", "content": "內容", "說明": "內容", "说明": "內容",
+    "摘要": "內容", "描述": "內容", "summary": "內容", "description": "內容",
     "重点": "重點", "key_points": "重點", "keypoints": "重點",
     "points": "重點", "highlights": "重點",
     "标签": "標籤", "tags": "標籤", "labels": "標籤", "keywords": "標籤",
@@ -164,6 +165,13 @@ def _normalize_enums(fields: dict) -> dict:
     if isinstance(g, str):
         g = _VALUE_ALIASES.get(g.strip(), g.strip())
         fields["大分類"] = g if (not g or g in EQUIPMENT_CATEGORIES) else ""
+    return fields
+
+
+def _fill_defaults(fields: dict) -> dict:
+    """模型若只給標題與內容，填入安全預設讓卡片能成立，交審核者於校稿台補全。"""
+    fields.setdefault("知識類型", "其他")
+    fields.setdefault("信心等級", "中")
     return fields
 
 
@@ -351,7 +359,10 @@ def structure_transcripts(
 
         cards: list[KnowledgeCard] = []
         for item in items:
-            fields = _normalize_enums(_pick_card_fields(item))
+            fields = _fill_defaults(_normalize_enums(_pick_card_fields(item)))
+            # 至少要有標題與內容才成卡；其餘可由預設補上交審核者完成。
+            if not fields.get("標題") or not fields.get("內容"):
+                continue
             try:
                 cards.append(
                     KnowledgeCard(

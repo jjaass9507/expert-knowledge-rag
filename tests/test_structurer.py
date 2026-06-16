@@ -141,6 +141,19 @@ def test_structure_transcripts_simplified_values_mapped():
     assert cards[0].大分類 == "空壓機"
 
 
+def test_structure_transcripts_minimal_keys_with_defaults():
+    # 模型只給「知識點/說明」→ 映射為標題/內容, 其餘填預設, 仍成卡
+    minimal = ('[{"知識點":"源頭壓力與耗電","說明":"每升1 bar耗電增約7%"},'
+               '{"知識點":"新SOP","說明":"改裝感測器找瓶頸"}]')
+    from ekr.structurer import structure_transcripts
+    cards = structure_transcripts("x", StubLLM(minimal), "技師")
+    assert len(cards) == 2
+    assert cards[0].標題 == "源頭壓力與耗電"
+    assert cards[0].內容 == "每升1 bar耗電增約7%"
+    assert cards[0].知識類型.value == "其他"  # 缺漏 → 預設
+    assert cards[0].信心等級.value == "中"
+
+
 def test_structure_transcripts_single_object_wrapped():
     from ekr.structurer import structure_transcripts
     # 模型只回單一物件（非陣列）→ 包成一張卡
