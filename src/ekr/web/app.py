@@ -15,7 +15,7 @@ from ..asr import from_env as asr_from_env
 from ..llm import from_env
 from ..models import EQUIPMENT_CATEGORIES, Confidence, KnowledgeType
 from ..storage import Storage
-from ..structurer import refine_card, structure_transcript
+from ..structurer import refine_card, structure_transcript, structure_transcripts
 
 load_dotenv()
 
@@ -123,14 +123,18 @@ def create_app(storage: Storage | None = None) -> Flask:
                     "submit.html", error="請輸入逐字稿、描述內容，或上傳音檔", 更新人=更新人
                 )
             try:
-                card = structure_transcript(transcript, from_env(), 更新人)
+                cards = structure_transcripts(transcript, from_env(), 更新人)
             except Exception as e:  # noqa: BLE001 — 結構化失敗如實回報給審核者
                 return render_template(
                     "submit.html", error=f"結構化失敗：{e}",
                     逐字稿=transcript, 更新人=更新人,
                 )
-            store.insert_pending(card)
-            return redirect(url_for("review", card_id=card.id))
+            for card in cards:
+                store.insert_pending(card)
+            # 單一知識點 → 直接進校稿台；多張 → 回待校稿清單逐一校對
+            if len(cards) == 1:
+                return redirect(url_for("review", card_id=cards[0].id))
+            return redirect(url_for("index"))
         return render_template("submit.html")
 
     @app.route("/review/<card_id>")

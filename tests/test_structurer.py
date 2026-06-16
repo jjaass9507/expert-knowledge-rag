@@ -95,6 +95,49 @@ def test_invalid_enum_values_coerced_to_safe_defaults():
     assert card.信心等級.value == "中"     # 非法等級 → 中
 
 
+class RoutingLLM:
+    """依 system prompt 路由回應，模擬拆分→結構化→萃取→濃縮多段流程。"""
+
+    def __init__(self, segments):
+        self._segments = segments
+
+    def complete(self, system, human):
+        if "拆分" in system:
+            import json as _json
+            return _json.dumps({"段落": self._segments}, ensure_ascii=False)
+        if "結構化知識卡片" in system:
+            return GOOD_JSON
+        if "萃取" in system:
+            return '{"重點": ["要點"]}'
+        if "編輯" in system:
+            return '{"內容": "濃縮內容"}'
+        return GOOD_JSON
+
+
+def test_split_transcript_returns_segments():
+    from ekr.structurer import split_transcript
+    segs = split_transcript("...", StubLLM('{"段落": ["片段甲", "片段乙"]}'))
+    assert segs == ["片段甲", "片段乙"]
+
+
+def test_split_single_point_falls_back_to_whole():
+    from ekr.structurer import split_transcript
+    # 回應無「段落」鍵 → 視為單一知識點
+    segs = split_transcript("整段只談一件事", StubLLM('{"foo": 1}'))
+    assert segs == ["整段只談一件事"]
+
+
+def test_structure_transcripts_makes_one_card_per_segment():
+    from ekr.structurer import structure_transcripts
+    llm = RoutingLLM(["片段甲 講電流", "片段乙 講抽真空"])
+    cards = structure_transcripts("一大段口述", llm, "王技師")
+    assert len(cards) == 2
+    assert cards[0].原始逐字稿 == "片段甲 講電流"
+    assert cards[1].原始逐字稿 == "片段乙 講抽真空"
+    assert all(c.id.startswith("KB-") for c in cards)
+    assert cards[0].id != cards[1].id
+
+
 def test_human_prompt_contains_transcript():
     system, human = _structure_prompts("這是逐字稿內容")
     assert "這是逐字稿內容" in human

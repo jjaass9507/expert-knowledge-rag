@@ -5,7 +5,7 @@
 <div class="toolbar">
   <div class="toolbar-left">
     <h1>新增口述</h1>
-    <span class="count-chip">文字 / 語音 → 自動結構化</span>
+    <span class="count-chip">一段口述 → 自動拆分多個知識點 → 各自結構化成卡</span>
   </div>
 </div>
 
@@ -22,8 +22,8 @@
       <input type="file" name="音檔" accept="audio/*">
     </label>
     <label class="field">
-      <span class="label">逐字稿 / 描述<span class="hint">未上傳音檔時直接填寫</span></span>
-      <textarea name="逐字稿" rows="12" placeholder="請說明：遇到什麼狀況？你判斷是什麼原因？怎麼處理？有什麼要注意的？">{{ 逐字稿 or '' }}</textarea>
+      <span class="label">逐字稿 / 描述<span class="hint">未上傳音檔時直接填寫；可一次講多個知識點，系統會自動拆成多張卡</span></span>
+      <textarea name="逐字稿" rows="12" placeholder="請說明：遇到什麼狀況？你判斷是什麼原因？怎麼處理？有什麼要注意的？（可一次講多件事）">{{ 逐字稿 or '' }}</textarea>
     </label>
     <div class="actions">
       <button type="submit" class="btn-primary">{{ icon('add') }}整理為知識卡片</button>

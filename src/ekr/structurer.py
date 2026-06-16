@@ -206,7 +206,7 @@ def structure_transcript(
     now: str | None = None,
     max_retries: int = 1,
 ) -> KnowledgeCard:
-    """將逐字稿結構化為一張已驗證的 KnowledgeCard。"""
+    """將單一逐字稿（片段）結構化為一張已驗證的 KnowledgeCard。"""
     provenance = {
         "id": "KB-" + uuid.uuid4().hex[:8],
         "原始逐字稿": transcript,
@@ -217,6 +217,45 @@ def structure_transcript(
     card = _generate(llm, system, human, provenance, max_retries)
     # 附加萃取：抽重點 + 濃縮內容（失敗則保留原內容、重點留空）。
     return enrich_card(card, llm, max_retries)
+
+
+def split_transcript(transcript: str, llm: LLM, max_retries: int = 1) -> list[str]:
+    """把一段口述拆成多個各自獨立的知識點片段；失敗或單一知識點則回傳 [transcript]。"""
+    try:
+        sys = _load_prompt("split_system.txt")
+        hum = _load_prompt("split_human.txt").replace("{transcript}", transcript)
+        data = _call_json(llm, sys, hum, max_retries)
+        segs = data.get("段落") or data.get("知識點") or []
+        segs = [s.strip() for s in segs if isinstance(s, str) and s.strip()]
+        return segs or [transcript]
+    except (ValueError, yaml.YAMLError):
+        return [transcript]
+
+
+def structure_transcripts(
+    transcript: str,
+    llm: LLM,
+    更新人: str,
+    now: str | None = None,
+    max_retries: int = 1,
+) -> list[KnowledgeCard]:
+    """解構一段口述為多張知識卡：先拆分知識點，再各自結構化。
+
+    每個片段獨立結構化；個別片段失敗則略過，全部失敗才拋出。
+    """
+    segments = split_transcript(transcript, llm, max_retries)
+    cards: list[KnowledgeCard] = []
+    last_err: Exception | None = None
+    for seg in segments:
+        try:
+            cards.append(
+                structure_transcript(seg, llm, 更新人, now=now, max_retries=max_retries)
+            )
+        except (ValidationError, ValueError, yaml.YAMLError) as e:
+            last_err = e
+    if not cards:
+        raise ValueError(f"結構化失敗：{last_err}")
+    return cards
 
 
 def refine_card(
