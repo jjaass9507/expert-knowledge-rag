@@ -1,11 +1,14 @@
 {% extends "base.html" %}
-{% block view %}知識卡目錄{% endblock %}
+{% block title %}知識卡目錄 · EKR Intelligence{% endblock %}
 {% block content %}
-<div class="section-head">
-  <h1>知識卡目錄</h1>
-  <p class="meta">已定稿 {{ cards|length }} 張</p>
+<div class="toolbar">
+  <div class="toolbar-left">
+    <h1>知識卡目錄</h1>
+    <span class="count-chip">{{ cards|length }} 已定稿</span>
+  </div>
 </div>
 
+<div class="page">
 {% if cards %}
 <table class="ledger">
   <thead>
@@ -14,6 +17,7 @@
       <th>標題</th>
       <th class="col-type">知識類型</th>
       <th class="col-conf">信心</th>
+      <th>狀態</th>
       <th class="col-user">更新人</th>
       <th class="col-date">最後更新</th>
     </tr>
@@ -22,9 +26,10 @@
     {% for c in cards %}
     <tr onclick="location.href='{{ url_for('card_detail', card_id=c.id) }}'">
       <td class="mono">{{ c.id }}</td>
-      <td>{{ c.標題 }}</td>
-      <td>{{ c.知識類型.value }}</td>
-      <td>{{ c.信心等級.value }}</td>
+      <td class="title-cell">{{ c.標題 }}</td>
+      <td><span class="chip">{{ c.知識類型.value }}</span></td>
+      <td><span class="conf conf-{{ c.信心等級.value }}">{{ c.信心等級.value }}</span></td>
+      <td><span class="pill pill-approved">已定稿</span></td>
       <td>{{ c.更新人 }}</td>
       <td class="mono dim">{{ c.最後更新 }}</td>
     </tr>
@@ -34,4 +39,5 @@
 {% else %}
 <p class="empty">知識庫目前是空的。完成校稿後的卡片會出現在這裡。</p>
 {% endif %}
+</div>
 {% endblock %}

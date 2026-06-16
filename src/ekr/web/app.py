@@ -45,6 +45,14 @@ def create_app(storage: Storage | None = None) -> Flask:
     KNOWLEDGE_TYPES = [t.value for t in KnowledgeType]
     CONFIDENCES = [c.value for c in Confidence]
 
+    @app.context_processor
+    def inject_nav():
+        # 側邊欄計數，所有頁面共用。
+        return {
+            "nav_pending": len(store.list_by_status("pending")),
+            "nav_approved": len(store.list_by_status("approved")),
+        }
+
     @app.route("/")
     def index():
         pending = store.list_by_status("pending")

@@ -1,11 +1,18 @@
 {% extends "base.html" %}
-{% block view %}待校稿{% endblock %}
+{% from "_icons.html" import icon %}
+{% block title %}待校稿 · EKR Intelligence{% endblock %}
 {% block content %}
-<div class="section-head">
-  <h1>待校稿</h1>
-  <p class="meta">待審 {{ pending|length }} · <a href="{{ url_for('library') }}">已定稿 {{ approved_count }}</a></p>
+<div class="toolbar">
+  <div class="toolbar-left">
+    <h1>待校稿</h1>
+    <span class="count-chip">{{ pending|length }} 待審 · {{ approved_count }} 已定稿</span>
+  </div>
+  <div class="toolbar-right">
+    <a class="btn-primary" href="{{ url_for('submit') }}">{{ icon('add') }}新增口述</a>
+  </div>
 </div>
 
+<div class="page">
 {% if pending %}
 <table class="ledger">
   <thead>
@@ -14,6 +21,7 @@
       <th>標題</th>
       <th class="col-type">知識類型</th>
       <th class="col-conf">信心</th>
+      <th>狀態</th>
       <th class="col-user">更新人</th>
       <th class="col-date">最後更新</th>
     </tr>
@@ -22,9 +30,10 @@
     {% for c in pending %}
     <tr onclick="location.href='{{ url_for('review', card_id=c.id) }}'">
       <td class="mono">{{ c.id }}</td>
-      <td>{{ c.標題 }}</td>
-      <td>{{ c.知識類型.value }}</td>
-      <td>{{ c.信心等級.value }}</td>
+      <td class="title-cell">{{ c.標題 }}</td>
+      <td><span class="chip">{{ c.知識類型.value }}</span></td>
+      <td><span class="conf conf-{{ c.信心等級.value }}">{{ c.信心等級.value }}</span></td>
+      <td><span class="pill pill-pending">待校稿</span></td>
       <td>{{ c.更新人 }}</td>
       <td class="mono dim">{{ c.最後更新 }}</td>
     </tr>
@@ -34,4 +43,5 @@
 {% else %}
 <p class="empty">目前沒有待校稿的卡片。<a href="{{ url_for('submit') }}">新增一筆口述</a>。</p>
 {% endif %}
+</div>
 {% endblock %}
