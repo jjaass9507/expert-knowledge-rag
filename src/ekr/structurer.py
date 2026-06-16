@@ -64,6 +64,18 @@ def _extract_json_object(text: str) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
+def _extract_json_array(text: str) -> list | None:
+    """從可能夾帶說明文字的輸出中擷取第一個 JSON 陣列。"""
+    m = re.search(r"\[.*\]", text, re.DOTALL)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, list) else None
+
+
 def _pick_fields(data: dict) -> dict:
     """只取 LLM 應負責的欄位，忽略多餘鍵。"""
     return {k: data[k] for k in LLM_FIELDS if k in data}
@@ -219,17 +231,39 @@ def structure_transcript(
     return enrich_card(card, llm, max_retries)
 
 
-def split_transcript(transcript: str, llm: LLM, max_retries: int = 1) -> list[str]:
-    """把一段口述拆成多個各自獨立的知識點片段；失敗或單一知識點則回傳 [transcript]。"""
+def _pick_card_fields(d: dict) -> dict:
+    """從一個卡片物件取出結構化欄位（含重點）。"""
+    out = {k: d[k] for k in LLM_FIELDS if k in d}
+    if "重點" in d:
+        out["重點"] = _as_str_list(d["重點"])
+    return out
+
+
+def _parse_card_array(raw: str) -> list[dict]:
+    """把 LLM 輸出解析為卡片物件陣列；單一物件則包成一元素，皆失敗則拋出帶原始輸出。"""
+    text = _strip_fence(raw or "")
     try:
-        sys = _load_prompt("split_system.txt")
-        hum = _load_prompt("split_human.txt").replace("{transcript}", transcript)
-        data = _call_json(llm, sys, hum, max_retries)
-        segs = data.get("段落") or data.get("知識點") or []
-        segs = [s.strip() for s in segs if isinstance(s, str) and s.strip()]
-        return segs or [transcript]
-    except (ValueError, yaml.YAMLError):
-        return [transcript]
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        data = None
+    if isinstance(data, list):
+        items = [d for d in data if isinstance(d, dict)]
+    elif isinstance(data, dict):
+        items = [data]  # 模型只回單一物件 → 包成一張卡
+    else:
+        # 解析失敗：先試擷取陣列，再退而擷取單一物件
+        arr = _extract_json_array(text)
+        if isinstance(arr, list):
+            items = [d for d in arr if isinstance(d, dict)]
+        else:
+            obj = _extract_json_object(text)
+            items = [obj] if isinstance(obj, dict) else []
+    if not items:
+        snippet = (raw or "").strip()
+        if len(snippet) > 500:
+            snippet = snippet[:500] + "…（已截斷）"
+        raise ValueError(f"LLM 未輸出卡片陣列。原始輸出：{snippet!r}")
+    return items
 
 
 def structure_transcripts(
@@ -239,23 +273,47 @@ def structure_transcripts(
     now: str | None = None,
     max_retries: int = 1,
 ) -> list[KnowledgeCard]:
-    """解構一段口述為多張知識卡：先拆分知識點，再各自結構化。
+    """解構一段口述為多張知識卡：一次呼叫產出卡片陣列，每個知識點各自成卡。
 
-    每個片段獨立結構化；個別片段失敗則略過，全部失敗才拋出。
+    個別卡片缺欄位則略過，全部失敗才拋出。單一知識點則回傳一張卡。
     """
-    segments = split_transcript(transcript, llm, max_retries)
-    cards: list[KnowledgeCard] = []
+    最後更新 = now or date.today().isoformat()
+    system = _load_prompt("structure_multi_system.txt")
+    base_human = _load_prompt("structure_multi_human.txt").replace(
+        "{transcript}", transcript
+    )
+
+    human = base_human
     last_err: Exception | None = None
-    for seg in segments:
+    for attempt in range(max_retries + 1):
+        raw = llm.complete(system, human)
         try:
-            cards.append(
-                structure_transcript(seg, llm, 更新人, now=now, max_retries=max_retries)
-            )
-        except (ValidationError, ValueError, yaml.YAMLError) as e:
+            items = _parse_card_array(raw)
+        except ValueError as e:
             last_err = e
-    if not cards:
-        raise ValueError(f"結構化失敗：{last_err}")
-    return cards
+            human = base_human + "\n\n請只輸出 JSON 陣列，每個知識點一個物件。"
+            continue
+
+        cards: list[KnowledgeCard] = []
+        for item in items:
+            fields = _normalize_enums(_pick_card_fields(item))
+            try:
+                cards.append(
+                    KnowledgeCard(
+                        id="KB-" + uuid.uuid4().hex[:8],
+                        原始逐字稿=transcript,
+                        更新人=更新人,
+                        最後更新=最後更新,
+                        **fields,
+                    )
+                )
+            except ValidationError as e:
+                last_err = e
+        if cards:
+            return cards
+        human = base_human + f"\n\n上次每個物件都缺欄位或非法（{last_err}），請輸出合法卡片陣列。"
+
+    raise ValueError(f"結構化失敗：{last_err}")
 
 
 def refine_card(

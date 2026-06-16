@@ -95,47 +95,29 @@ def test_invalid_enum_values_coerced_to_safe_defaults():
     assert card.信心等級.value == "中"     # 非法等級 → 中
 
 
-class RoutingLLM:
-    """依 system prompt 路由回應，模擬拆分→結構化→萃取→濃縮多段流程。"""
-
-    def __init__(self, segments):
-        self._segments = segments
-
-    def complete(self, system, human):
-        if "拆分" in system:
-            import json as _json
-            return _json.dumps({"段落": self._segments}, ensure_ascii=False)
-        if "結構化知識卡片" in system:
-            return GOOD_JSON
-        if "萃取" in system:
-            return '{"重點": ["要點"]}'
-        if "編輯" in system:
-            return '{"內容": "濃縮內容"}'
-        return GOOD_JSON
+CARD_ARRAY = """[
+  {"標題":"調高源頭壓力會增加耗電","內容":"源頭壓力每調高1 bar，空壓機總耗電約增加7%。","重點":["壓力每升1 bar耗電增約7%"],"標籤":["壓力","耗電"],"知識類型":"經驗法則","大分類":"空壓機","適用範圍":"","信心等級":"高"},
+  {"標題":"推行不調高源頭壓力的新SOP","內容":"改在主幹管與機台末端裝壓力感測器找瓶頸，不再隨意調高源頭壓力。","重點":["裝壓力感測器找瓶頸"],"標籤":["SOP","感測器"],"知識類型":"SOP","大分類":"空壓機","適用範圍":"","信心等級":"中"}
+]"""
 
 
-def test_split_transcript_returns_segments():
-    from ekr.structurer import split_transcript
-    segs = split_transcript("...", StubLLM('{"段落": ["片段甲", "片段乙"]}'))
-    assert segs == ["片段甲", "片段乙"]
-
-
-def test_split_single_point_falls_back_to_whole():
-    from ekr.structurer import split_transcript
-    # 回應無「段落」鍵 → 視為單一知識點
-    segs = split_transcript("整段只談一件事", StubLLM('{"foo": 1}'))
-    assert segs == ["整段只談一件事"]
-
-
-def test_structure_transcripts_makes_one_card_per_segment():
+def test_structure_transcripts_array_makes_multiple_cards():
     from ekr.structurer import structure_transcripts
-    llm = RoutingLLM(["片段甲 講電流", "片段乙 講抽真空"])
-    cards = structure_transcripts("一大段口述", llm, "王技師")
+    cards = structure_transcripts("一大段口述", StubLLM(CARD_ARRAY), "王技師")
     assert len(cards) == 2
-    assert cards[0].原始逐字稿 == "片段甲 講電流"
-    assert cards[1].原始逐字稿 == "片段乙 講抽真空"
-    assert all(c.id.startswith("KB-") for c in cards)
+    assert cards[0].標題 == "調高源頭壓力會增加耗電"
+    assert cards[0].重點 == ["壓力每升1 bar耗電增約7%"]
+    assert cards[1].知識類型.value == "SOP"
+    assert all(c.原始逐字稿 == "一大段口述" for c in cards)  # 皆保留來源
     assert cards[0].id != cards[1].id
+
+
+def test_structure_transcripts_single_object_wrapped():
+    from ekr.structurer import structure_transcripts
+    # 模型只回單一物件（非陣列）→ 包成一張卡
+    cards = structure_transcripts("只談一件事", StubLLM(GOOD_JSON), "技師")
+    assert len(cards) == 1
+    assert cards[0].標題 == "電流偏高但壓力正常"
 
 
 def test_human_prompt_contains_transcript():
