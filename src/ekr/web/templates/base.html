@@ -18,6 +18,17 @@
       <span class="brand-sub">專家知識庫 · 結構化校稿台</span>
     </div>
     <div class="topbar-right">
+      {% if llm_backends %}
+      <form class="llm-select" method="post" action="{{ url_for('set_llm') }}">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <span class="llm-label">模型</span>
+        <select name="backend" onchange="this.form.submit()">
+          {% for id, label in llm_backends %}
+          <option value="{{ id }}" {% if id == llm_current %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
       <span class="status"><span class="status-dot"></span>系統正常</span>
     </div>
   </header>

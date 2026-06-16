@@ -88,3 +88,14 @@ def test_keyword_search_finds_card(client):
     _approve_one(c)
     body = c.get("/search?q=電流偏高").get_data(as_text=True)
     assert "電流偏高研判" in body
+
+
+def test_switch_llm_backend_persists(client, monkeypatch):
+    c, store = client
+    monkeypatch.setenv("OPENAI_API_URL", "http://x")  # 讓 openai 後端可用
+    r = c.post("/settings/llm", data={"backend": "openai", "next": "/library"})
+    assert r.status_code == 302
+    assert store.get_setting("llm_backend") == "openai"
+    # 非法後端不應被接受
+    c.post("/settings/llm", data={"backend": "不存在"})
+    assert store.get_setting("llm_backend") == "openai"

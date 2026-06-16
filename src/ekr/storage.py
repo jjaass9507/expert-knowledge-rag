@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS cards (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 # 既有資料庫的欄位補丁（欄名 → 欄定義）。
@@ -68,7 +72,7 @@ class Storage:
         self.approved_dir = Path(approved_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
-            conn.execute(_SCHEMA)
+            conn.executescript(_SCHEMA)
             existing = {r["name"] for r in conn.execute("PRAGMA table_info(cards)")}
             for col, ddl in _MIGRATIONS.items():
                 if col not in existing:
@@ -88,6 +92,22 @@ class Storage:
     def close(self) -> None:
         # 不再持有長壽連線，保留以相容呼叫端。
         pass
+
+    # --- 設定（key-value）---
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key=?", (key,)
+            ).fetchone()
+        return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
 
     # --- 寫入 ---
     def insert_pending(self, card: KnowledgeCard) -> None:

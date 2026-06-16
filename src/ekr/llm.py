@@ -85,9 +85,69 @@ class StubLLM:
         return self._responses[i]
 
 
-def from_env() -> LLM:
-    """依環境變數建立 LLM；EKR_LLM=stub 時回傳離線假回應。"""
-    if os.environ.get("EKR_LLM", "pensieve").lower() == "stub":
+class OpenAILLM:
+    """OpenAI 相容 /chat/completions API（Authorization: Bearer）。"""
+
+    def __init__(
+        self,
+        url: str,
+        model: str,
+        api_key: str = "",
+        verify_ssl: bool = False,
+        timeout: int = 300,
+    ):
+        self.url = url
+        self.model = model
+        self.api_key = api_key
+        self.verify_ssl = verify_ssl
+        self.timeout = timeout
+
+    def complete(self, system: str, human: str) -> str:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": human},
+            ],
+        }
+        resp = requests.post(
+            self.url,
+            json=payload,
+            headers=headers,
+            verify=self.verify_ssl,
+            proxies={"http": None, "https": None},
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+
+# --- 後端選擇 ---
+def available_backends() -> list[tuple[str, str]]:
+    """回傳已設定的 LLM 後端 [(id, 顯示名稱), ...]，供平台下拉選單使用。"""
+    out: list[tuple[str, str]] = []
+    if os.environ.get("PENSIEVE_URL"):
+        out.append(("pensieve", os.environ.get("PENSIEVE_LABEL") or "Pensieve · GPT-4.1-mini"))
+    if os.environ.get("OPENAI_API_URL"):
+        out.append(("openai", os.environ.get("OPENAI_LABEL") or "OpenAI 相容 API"))
+    out.append(("stub", "離線測試 (Stub)"))
+    return out
+
+
+def build_llm(backend: str) -> LLM:
+    """依後端 id 建立 LLM 實例。"""
+    if backend == "openai":
+        return OpenAILLM(
+            url=os.environ["OPENAI_API_URL"],
+            model=os.environ["OPENAI_MODEL"],
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            verify_ssl=os.environ.get("OPENAI_VERIFY_SSL", "false").lower() == "true",
+            timeout=int(os.environ.get("OPENAI_TIMEOUT", "300")),
+        )
+    if backend == "stub":
         return StubLLM(_STUB_JSON)
     return PensieveLLM(
         url=os.environ["PENSIEVE_URL"],
@@ -97,6 +157,11 @@ def from_env() -> LLM:
         verify_ssl=os.environ.get("PENSIEVE_VERIFY_SSL", "false").lower() == "true",
         timeout=int(os.environ.get("PENSIEVE_TIMEOUT", "300")),
     )
+
+
+def from_env() -> LLM:
+    """依環境變數建立預設 LLM；EKR_LLM 指定後端（pensieve / openai / stub）。"""
+    return build_llm(os.environ.get("EKR_LLM", "pensieve").lower())
 
 
 _STUB_JSON = """\

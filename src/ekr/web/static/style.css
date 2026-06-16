@@ -73,6 +73,14 @@ a:hover { text-decoration: underline; }
 .brand-name { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--on-bg); }
 .brand-sub { font-size: 12px; color: var(--muted); margin-left: 6px; }
 .topbar-right { display: flex; align-items: center; gap: 16px; }
+.llm-select { display: inline-flex; align-items: center; gap: 7px; margin: 0; }
+.llm-label { font-size: 11px; color: var(--muted); font-family: var(--mono); letter-spacing: 0.04em; }
+.llm-select select {
+  background: var(--surface-lowest); color: var(--on-bg);
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  padding: 5px 9px; font-size: 12px; font-family: var(--sans);
+}
+.llm-select select:focus { outline: none; border-color: var(--primary); }
 .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--on-variant); }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(52,211,153,0.15); }
 

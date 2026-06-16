@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from flask import Flask, redirect, render_template, request, url_for
 
 from ..asr import from_env as asr_from_env
-from ..llm import from_env
+from ..llm import available_backends, build_llm
 from ..models import EQUIPMENT_CATEGORIES, Confidence, KnowledgeType
 from ..storage import Storage
 from ..structurer import refine_card, structure_transcript, structure_transcripts
@@ -48,16 +48,34 @@ def create_app(storage: Storage | None = None) -> Flask:
     KNOWLEDGE_TYPES = [t.value for t in KnowledgeType]
     CONFIDENCES = [c.value for c in Confidence]
 
+    def _selected_backend() -> str:
+        ids = [b[0] for b in available_backends()]
+        cur = store.get_setting("llm_backend") or os.environ.get("EKR_LLM", "pensieve")
+        return cur if cur in ids else (ids[0] if ids else "pensieve")
+
+    def current_llm():
+        return build_llm(_selected_backend())
+
     @app.context_processor
     def inject_globals():
-        # 側邊欄計數與下拉選項，所有頁面共用。
+        # 側邊欄計數、下拉選項與 LLM 後端選擇，所有頁面共用。
         return {
             "nav_pending": len(store.list_by_status("pending")),
             "nav_approved": len(store.list_by_status("approved")),
             "knowledge_types": KNOWLEDGE_TYPES,
             "confidences": CONFIDENCES,
             "categories": EQUIPMENT_CATEGORIES,
+            "llm_backends": available_backends(),
+            "llm_current": _selected_backend(),
         }
+
+    @app.route("/settings/llm", methods=["POST"])
+    def set_llm():
+        backend = request.form.get("backend", "")
+        if backend in [b[0] for b in available_backends()]:
+            store.set_setting("llm_backend", backend)
+        nxt = request.form.get("next", "")
+        return redirect(nxt if nxt.startswith("/") else url_for("index"))
 
     @app.route("/")
     def index():
@@ -123,7 +141,7 @@ def create_app(storage: Storage | None = None) -> Flask:
                     "submit.html", error="請輸入逐字稿、描述內容，或上傳音檔", 更新人=更新人
                 )
             try:
-                cards = structure_transcripts(transcript, from_env(), 更新人)
+                cards = structure_transcripts(transcript, current_llm(), 更新人)
             except Exception as e:  # noqa: BLE001 — 結構化失敗如實回報給審核者
                 return render_template(
                     "submit.html", error=f"結構化失敗：{e}",
@@ -166,9 +184,9 @@ def create_app(storage: Storage | None = None) -> Flask:
         feedback = request.form.get("補充說明", "").strip()
         try:
             if feedback:
-                new = refine_card(card, feedback, from_env())
+                new = refine_card(card, feedback, current_llm())
             else:
-                new = structure_transcript(card.原始逐字稿, from_env(), card.更新人)
+                new = structure_transcript(card.原始逐字稿, current_llm(), card.更新人)
         except Exception as e:  # noqa: BLE001
             return render_template(
                 "review.html", card=card, error=f"重新整理失敗：{e}"
