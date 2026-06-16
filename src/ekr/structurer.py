@@ -27,6 +27,40 @@ from .models import (
 _VALID_TYPES = {t.value for t in KnowledgeType}
 _VALID_CONF = {c.value for c in Confidence}
 
+# 欄位鍵別名 → 正規中文鍵（容忍簡體中文與英文鍵）。
+_KEY_ALIASES = {
+    "标题": "標題", "title": "標題",
+    "内容": "內容", "content": "內容",
+    "重点": "重點", "key_points": "重點", "keypoints": "重點",
+    "points": "重點", "highlights": "重點",
+    "标签": "標籤", "tags": "標籤", "labels": "標籤", "keywords": "標籤",
+    "知识类型": "知識類型", "type": "知識類型", "knowledge_type": "知識類型",
+    "大分类": "大分類", "equipment": "大分類", "equipment_category": "大分類",
+    "category": "大分類", "domain": "大分類",
+    "适用范围": "適用範圍", "scope": "適用範圍", "applicable_scope": "適用範圍",
+    "信心等级": "信心等級", "confidence": "信心等級", "confidence_level": "信心等級",
+}
+
+# 列舉/分類值別名 → 正規繁體值（容忍簡體）。
+_VALUE_ALIASES = {
+    "诊断": "診斷", "规格": "規格", "经验法则": "經驗法則",
+    "空压机": "空壓機", "冰水主机": "冰水主機", "冷却水塔": "冷卻水塔",
+    "锅炉": "鍋爐", "配电/电气": "配電/電氣", "管路/阀件": "管路/閥件", "仪控": "儀控",
+}
+
+
+def _normalize_keys(d: dict) -> dict:
+    """把卡片物件的鍵正規化為繁體中文鍵（容忍簡體/英文）。"""
+    out = {}
+    for k, v in d.items():
+        key = k.strip() if isinstance(k, str) else k
+        out[_KEY_ALIASES.get(key, key)] = v
+    return out
+
+
+def _has_card_fields(d: dict) -> bool:
+    return bool(set(_normalize_keys(d)) & set(LLM_FIELDS))
+
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
@@ -117,17 +151,19 @@ def _parse_llm_fields(raw: str) -> dict:
 
 
 def _normalize_enums(fields: dict) -> dict:
-    """把列舉/受限欄位收斂到合法值：模型若自創類別/等級，落到安全預設，交審核者修正。"""
+    """把列舉/受限欄位收斂到合法值（容忍簡體）；自創類別/等級落到安全預設，交審核者修正。"""
     t = fields.get("知識類型")
-    if isinstance(t, str) and t.strip() not in _VALID_TYPES:
-        fields["知識類型"] = "其他"
+    if isinstance(t, str):
+        t = _VALUE_ALIASES.get(t.strip(), t.strip())
+        fields["知識類型"] = t if t in _VALID_TYPES else "其他"
     c = fields.get("信心等級")
     if isinstance(c, str) and c.strip() not in _VALID_CONF:
         fields["信心等級"] = "中"
-    # 大分類非預設清單內則清空，交審核者用下拉選擇。
+    # 大分類：容忍簡體；非預設清單內則清空，交審核者用下拉選擇。
     g = fields.get("大分類")
-    if isinstance(g, str) and g.strip() and g.strip() not in EQUIPMENT_CATEGORIES:
-        fields["大分類"] = ""
+    if isinstance(g, str):
+        g = _VALUE_ALIASES.get(g.strip(), g.strip())
+        fields["大分類"] = g if (not g or g in EQUIPMENT_CATEGORIES) else ""
     return fields
 
 
@@ -232,15 +268,30 @@ def structure_transcript(
 
 
 def _pick_card_fields(d: dict) -> dict:
-    """從一個卡片物件取出結構化欄位（含重點）。"""
+    """正規化鍵後，取出結構化欄位（含重點）。"""
+    d = _normalize_keys(d)
     out = {k: d[k] for k in LLM_FIELDS if k in d}
     if "重點" in d:
         out["重點"] = _as_str_list(d["重點"])
     return out
 
 
+def _dict_to_items(d: dict) -> list[dict]:
+    """把一個 dict 轉成卡片物件清單：本身是卡片→[d]；被包一層（如 {"cards":[...]}）→取出內層陣列。"""
+    if _has_card_fields(d):
+        return [d]
+    nested = next(
+        (v for v in d.values()
+         if isinstance(v, list) and any(isinstance(x, dict) for x in v)),
+        None,
+    )
+    if nested is not None:
+        return [x for x in nested if isinstance(x, dict)]
+    return [d]
+
+
 def _parse_card_array(raw: str) -> list[dict]:
-    """把 LLM 輸出解析為卡片物件陣列；單一物件則包成一元素，皆失敗則拋出帶原始輸出。"""
+    """把 LLM 輸出解析為卡片物件陣列。容忍：陣列、單一物件、被物件包一層、夾帶說明文字。"""
     text = _strip_fence(raw or "")
     try:
         data = yaml.safe_load(text)
@@ -249,21 +300,22 @@ def _parse_card_array(raw: str) -> list[dict]:
     if isinstance(data, list):
         items = [d for d in data if isinstance(d, dict)]
     elif isinstance(data, dict):
-        items = [data]  # 模型只回單一物件 → 包成一張卡
+        items = _dict_to_items(data)
     else:
-        # 解析失敗：先試擷取陣列，再退而擷取單一物件
         arr = _extract_json_array(text)
         if isinstance(arr, list):
             items = [d for d in arr if isinstance(d, dict)]
         else:
             obj = _extract_json_object(text)
-            items = [obj] if isinstance(obj, dict) else []
+            items = _dict_to_items(obj) if isinstance(obj, dict) else []
     if not items:
-        snippet = (raw or "").strip()
-        if len(snippet) > 500:
-            snippet = snippet[:500] + "…（已截斷）"
-        raise ValueError(f"LLM 未輸出卡片陣列。原始輸出：{snippet!r}")
+        raise ValueError(f"LLM 未輸出卡片陣列。原始輸出：{_snippet(raw)}")
     return items
+
+
+def _snippet(raw: str, limit: int = 600) -> str:
+    s = (raw or "").strip()
+    return f"{s[:limit]}…（已截斷）" if len(s) > limit else s
 
 
 def structure_transcripts(
@@ -285,8 +337,11 @@ def structure_transcripts(
 
     human = base_human
     last_err: Exception | None = None
+    last_keys = None
+    last_raw = ""
     for attempt in range(max_retries + 1):
         raw = llm.complete(system, human)
+        last_raw = raw
         try:
             items = _parse_card_array(raw)
         except ValueError as e:
@@ -311,9 +366,19 @@ def structure_transcripts(
                 last_err = e
         if cards:
             return cards
-        human = base_human + f"\n\n上次每個物件都缺欄位或非法（{last_err}），請輸出合法卡片陣列。"
+        # 物件都缺欄位：記下實際鍵供診斷與重試提示
+        last_keys = list(items[0].keys()) if items else None
+        human = (
+            base_human
+            + f"\n\n上次輸出的物件鍵為 {last_keys}，缺少必要欄位。"
+            + "請改用這些「繁體中文」鍵：標題、內容、重點、標籤、知識類型、大分類、適用範圍、信心等級，並輸出 JSON 陣列。"
+        )
 
-    raise ValueError(f"結構化失敗：{last_err}")
+    if last_keys is not None:
+        raise ValueError(
+            f"結構化失敗：卡片物件缺少預期欄位。物件實際鍵：{last_keys}。原始輸出：{_snippet(last_raw)}"
+        )
+    raise ValueError(f"結構化失敗：{last_err}。原始輸出：{_snippet(last_raw)}")
 
 
 def refine_card(

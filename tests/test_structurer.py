@@ -112,6 +112,35 @@ def test_structure_transcripts_array_makes_multiple_cards():
     assert cards[0].id != cards[1].id
 
 
+def test_structure_transcripts_unwraps_object_wrapper():
+    from ekr.structurer import structure_transcripts
+    wrapped = ('{"cards":[' + CARD_ARRAY[1:-1] + ']}')
+    cards = structure_transcripts("x", StubLLM(wrapped), "技師")
+    assert len(cards) == 2
+    assert cards[0].標題 == "調高源頭壓力會增加耗電"
+
+
+def test_structure_transcripts_english_keys_mapped():
+    from ekr.structurer import structure_transcripts
+    eng = ('[{"title":"電流偏高","content":"壓力正常電流高","key_points":["檢查潤滑"],'
+           '"tags":["電流"],"type":"診斷","equipment":"冰水主機","scope":"","confidence":"中"}]')
+    cards = structure_transcripts("x", StubLLM(eng), "技師")
+    assert len(cards) == 1
+    assert cards[0].標題 == "電流偏高"
+    assert cards[0].知識類型.value == "診斷"
+    assert cards[0].大分類 == "冰水主機"
+    assert cards[0].重點 == ["檢查潤滑"]
+
+
+def test_structure_transcripts_simplified_values_mapped():
+    from ekr.structurer import structure_transcripts
+    simp = ('[{"标题":"测试","内容":"内容","重点":["点一"],"标签":["标"],'
+            '"知识类型":"经验法则","大分类":"空压机","适用范围":"","信心等级":"高"}]')
+    cards = structure_transcripts("x", StubLLM(simp), "技師")
+    assert cards[0].知識類型.value == "經驗法則"  # 简体值 → 繁體
+    assert cards[0].大分類 == "空壓機"
+
+
 def test_structure_transcripts_single_object_wrapped():
     from ekr.structurer import structure_transcripts
     # 模型只回單一物件（非陣列）→ 包成一張卡
