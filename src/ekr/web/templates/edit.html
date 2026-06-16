@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}編輯 {{ card.id }} · EKR Intelligence{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="toolbar-left">
+    <h1 class="mono">{{ card.id }}</h1>
+    <span class="pill pill-approved">編輯定稿卡</span>
+  </div>
+</div>
+
+<div class="page">
+  <form method="post" action="{{ url_for('edit_card', card_id=card.id) }}" class="form panel">
+    <label class="field">
+      <span class="label">標題</span>
+      <input type="text" name="標題" value="{{ card.標題 }}">
+    </label>
+
+    <label class="field">
+      <span class="label">內容</span>
+      <textarea name="內容" rows="7">{{ card.內容 }}</textarea>
+    </label>
+
+    <label class="field">
+      <span class="label">重點<span class="hint">每行一條</span></span>
+      <textarea name="重點" rows="4">{{ card.重點 | join('\n') }}</textarea>
+    </label>
+
+    <label class="field">
+      <span class="label">標籤<span class="hint">逗號分隔</span></span>
+      <input type="text" name="標籤" value="{{ card.標籤 | join(', ') }}">
+    </label>
+
+    <div class="field-row">
+      <label class="field">
+        <span class="label">知識類型</span>
+        <select name="知識類型">
+          {% for t in knowledge_types %}
+          <option value="{{ t }}" {% if t == card.知識類型.value %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">設備大分類</span>
+        <select name="大分類">
+          <option value="" {% if not card.大分類 %}selected{% endif %}>（未分類）</option>
+          {% for g in categories %}
+          <option value="{{ g }}" {% if g == card.大分類 %}selected{% endif %}>{{ g }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="label">信心等級</span>
+        <select name="信心等級">
+          {% for c in confidences %}
+          <option value="{{ c }}" {% if c == card.信心等級.value %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <label class="field">
+      <span class="label">適用範圍</span>
+      <input type="text" name="適用範圍" value="{{ card.適用範圍 }}">
+    </label>
+
+    <div class="actions">
+      <button type="submit" class="btn-primary">儲存變更</button>
+      <a class="btn-ghost" href="{{ url_for('card_detail', card_id=card.id) }}">取消</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

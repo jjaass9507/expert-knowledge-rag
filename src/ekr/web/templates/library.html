@@ -16,6 +16,7 @@
       <th class="col-id">編號</th>
       <th>標題</th>
       <th class="col-type">知識類型</th>
+      <th class="col-type">大分類</th>
       <th class="col-conf">信心</th>
       <th>狀態</th>
       <th class="col-user">更新人</th>
@@ -28,6 +29,7 @@
       <td class="mono">{{ c.id }}</td>
       <td class="title-cell">{{ c.標題 }}</td>
       <td><span class="chip">{{ c.知識類型.value }}</span></td>
+      <td>{% if c.大分類 %}<span class="chip">{{ c.大分類 }}</span>{% else %}<span class="dim">—</span>{% endif %}</td>
       <td><span class="conf conf-{{ c.信心等級.value }}">{{ c.信心等級.value }}</span></td>
       <td><span class="pill pill-approved">已定稿</span></td>
       <td>{{ c.更新人 }}</td>

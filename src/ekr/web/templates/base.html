@@ -9,7 +9,7 @@
 {% from "_icons.html" import icon %}
 {% set ep = request.endpoint %}
 {% set in_pending = ep in ['index', 'review', 'approve', 'reject', 'restructure'] %}
-{% set in_library = ep in ['library', 'card_detail'] %}
+{% set in_library = ep in ['library', 'card_detail', 'edit_card'] %}
 <body class="app">
   <header class="topbar">
     <div class="brand">
@@ -36,6 +36,9 @@
       <a class="nav-item {{ 'active' if ep == 'submit' }}" href="{{ url_for('submit') }}">
         {{ icon('submit') }}<span>新增口述</span>
       </a>
+      <a class="nav-item {{ 'active' if ep == 'search' }}" href="{{ url_for('search') }}">
+        {{ icon('search') }}<span>知識檢索</span>
+      </a>
 
       <div class="sidebar-foot">
         <div class="side-label">語料庫狀態</div>
@@ -48,5 +51,21 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+
+  <script>
+    // 送出表單時反灰按鈕並顯示「執行中…」，避免重複點擊（問題3）。
+    document.addEventListener('submit', function (e) {
+      var form = e.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      var submitter = e.submitter;
+      form.querySelectorAll('button[type=submit]').forEach(function (b) {
+        b.disabled = true;
+        if (b === submitter) {
+          b.dataset.orig = b.innerHTML;
+          b.innerHTML = '<span class="spin"></span>執行中…';
+        }
+      });
+    });
+  </script>
 </body>
 </html>

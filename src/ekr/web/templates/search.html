@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}知識檢索 · EKR Intelligence{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="toolbar-left">
+    <h1>知識檢索</h1>
+    <span class="count-chip">{{ '語意檢索' if semantic else '關鍵字搜尋' }}</span>
+  </div>
+</div>
+
+<div class="page">
+  <form class="search-bar" method="get" action="{{ url_for('search') }}">
+    <input type="text" name="q" value="{{ q }}" placeholder="輸入問題或關鍵字，例如：電流偏高 壓力正常" autofocus>
+    <select name="type">
+      <option value="">全部類型</option>
+      {% for t in knowledge_types %}
+      <option value="{{ t }}" {% if t == 知識類型 %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-primary">{{ icon('search') }}檢索</button>
+  </form>
+
+  {% if results is not none %}
+    <p class="search-meta">
+      查詢「{{ q }}」{% if 知識類型 %} · 類型 {{ 知識類型 }}{% endif %} —— 共 {{ results|length }} 筆
+    </p>
+    {% for r in results %}
+    <a class="result" href="{{ url_for('card_detail', card_id=r.id) }}">
+      <div class="result-head">
+        <span class="title">{{ r.標題 }}</span>
+        <span class="chip">{{ r.知識類型 }}</span>
+        {% if r.大分類 %}<span class="chip">{{ r.大分類 }}</span>{% endif %}
+        {% if r.score is not none %}<span class="score">{{ '%.3f'|format(r.score) }}</span>{% endif %}
+      </div>
+      {% if r.重點 %}
+      <ul class="points">{% for p in r.重點 %}<li>{{ p }}</li>{% endfor %}</ul>
+      {% else %}
+      <div class="result-body">{{ r.內容 }}</div>
+      {% endif %}
+    </a>
+    {% else %}
+    <p class="empty">沒有符合的知識卡。</p>
+    {% endfor %}
+  {% else %}
+    <p class="empty">輸入關鍵字後按「檢索」，查詢已定稿的知識庫。{% if not semantic %}（目前為關鍵字搜尋；設定 EKR_VECTOR=on 可啟用語意檢索。）{% endif %}</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -8,13 +8,28 @@
     <span class="pill pill-approved">已定稿</span>
     <span class="count-chip">更新人 {{ card.更新人 }} · {{ card.最後更新 }}</span>
   </div>
+  <div class="toolbar-right">
+    <a class="btn-ghost" href="{{ url_for('edit_card', card_id=card.id) }}">{{ icon('review') }}編輯</a>
+    <form method="post" action="{{ url_for('delete_card', card_id=card.id) }}"
+          onsubmit="return confirm('確定刪除此知識卡？此動作無法復原。');" style="display:inline">
+      <button type="submit" class="btn-ghost danger">{{ icon('trash') }}刪除</button>
+    </form>
+  </div>
 </div>
 
 <div class="page">
   <article class="card-view panel">
     <h2>{{ card.標題 }}</h2>
+
+    {% if card.重點 %}
+    <ul class="points lead">
+      {% for p in card.重點 %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
     <dl>
       <dt>知識類型</dt><dd><span class="chip">{{ card.知識類型.value }}</span></dd>
+      <dt>設備大分類</dt><dd>{% if card.大分類 %}<span class="chip">{{ card.大分類 }}</span>{% else %}—{% endif %}</dd>
       <dt>信心等級</dt><dd><span class="conf conf-{{ card.信心等級.value }}">{{ card.信心等級.value }}</span></dd>
       <dt>適用範圍</dt><dd>{{ card.適用範圍 or '—' }}</dd>
       <dt>標籤</dt><dd>{{ card.標籤 | join('、') or '—' }}</dd>

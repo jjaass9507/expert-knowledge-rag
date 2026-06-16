@@ -26,8 +26,10 @@ CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
     標題 TEXT NOT NULL,
     內容 TEXT NOT NULL,
+    重點 TEXT NOT NULL DEFAULT '[]',  -- JSON array
     標籤 TEXT NOT NULL,            -- JSON array
     知識類型 TEXT NOT NULL,
+    大分類 TEXT NOT NULL DEFAULT '',
     適用範圍 TEXT NOT NULL DEFAULT '',
     信心等級 TEXT NOT NULL,
     原始逐字稿 TEXT NOT NULL,
@@ -38,6 +40,12 @@ CREATE TABLE IF NOT EXISTS cards (
     updated_at TEXT NOT NULL
 );
 """
+
+# 既有資料庫的欄位補丁（欄名 → 欄定義）。
+_MIGRATIONS = {
+    "重點": "TEXT NOT NULL DEFAULT '[]'",
+    "大分類": "TEXT NOT NULL DEFAULT ''",
+}
 
 
 def _now() -> str:
@@ -50,14 +58,21 @@ class Storage:
         db_path: Path | str = DEFAULT_DB,
         approved_dir: Path | str = DEFAULT_APPROVED_DIR,
         on_approve=None,
+        on_delete=None,
     ):
-        # on_approve(card)：核准且寫出後觸發，供 Phase 3 向量化掛接（None 則略過）。
+        # on_approve(card)：核准/編輯定稿卡片後觸發（向量索引）；None 則略過。
+        # on_delete(card_id)：刪除定稿卡片後觸發（移除索引）；None 則略過。
         self.on_approve = on_approve
+        self.on_delete = on_delete
         self.db_path = Path(db_path)
         self.approved_dir = Path(approved_dir)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.execute(_SCHEMA)
+            existing = {r["name"] for r in conn.execute("PRAGMA table_info(cards)")}
+            for col, ddl in _MIGRATIONS.items():
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE cards ADD COLUMN {col} {ddl}")
 
     @contextlib.contextmanager
     def _connect(self):
@@ -79,15 +94,18 @@ class Storage:
         ts = _now()
         with self._connect() as conn:
             conn.execute(
-                """INSERT INTO cards (id, 標題, 內容, 標籤, 知識類型, 適用範圍, 信心等級,
-                   原始逐字稿, 更新人, 最後更新, status, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO cards (id, 標題, 內容, 重點, 標籤, 知識類型, 大分類,
+                   適用範圍, 信心等級, 原始逐字稿, 更新人, 最後更新,
+                   status, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     card.id,
                     card.標題,
                     card.內容,
+                    json.dumps(card.重點, ensure_ascii=False),
                     json.dumps(card.標籤, ensure_ascii=False),
                     card.知識類型.value,
+                    card.大分類,
                     card.適用範圍,
                     card.信心等級.value,
                     card.原始逐字稿,
@@ -101,12 +119,12 @@ class Storage:
 
     def update_fields(self, card_id: str, **fields) -> None:
         """更新審核者編輯過的欄位（標題/內容/標籤/知識類型/適用範圍/信心等級）。"""
-        allowed = {"標題", "內容", "標籤", "知識類型", "適用範圍", "信心等級"}
+        allowed = {"標題", "內容", "重點", "標籤", "知識類型", "大分類", "適用範圍", "信心等級"}
         sets, vals = [], []
         for k, v in fields.items():
             if k not in allowed:
                 continue
-            if k == "標籤" and isinstance(v, list):
+            if k in ("標籤", "重點") and isinstance(v, list):
                 v = json.dumps(v, ensure_ascii=False)
             sets.append(f"{k}=?")
             vals.append(v)
@@ -149,8 +167,9 @@ class Storage:
             raise KeyError(card_id)
         # 重新驗證（防手改破壞 schema）
         card = KnowledgeCard(**card.model_dump())
-        self._write_approved(card)
         self.set_status(card_id, "approved")
+        self._write_card_yaml(card)
+        self._rewrite_jsonl()
         if self.on_approve is not None:
             self.on_approve(card)
         return card
@@ -160,14 +179,57 @@ class Storage:
             raise KeyError(card_id)
         self.set_status(card_id, "rejected")
 
-    def _write_approved(self, card: KnowledgeCard) -> None:
-        self.approved_dir.mkdir(parents=True, exist_ok=True)
-        (self.approved_dir / "yaml").mkdir(exist_ok=True)
-        with (self.approved_dir / "cards.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json.dumps(card.model_dump(mode="json"), ensure_ascii=False) + "\n")
+    def update_card(self, card_id: str, **fields) -> KnowledgeCard:
+        """編輯卡片欄位；若為定稿卡片，同步更新 YAML/JSONL 並重新索引。"""
+        if self.get(card_id) is None:
+            raise KeyError(card_id)
+        self.update_fields(card_id, **fields)
+        card = self.get(card_id)
+        # 驗證編輯後仍合法
+        card = KnowledgeCard(**card.model_dump())
+        with self._connect() as conn:
+            status = conn.execute(
+                "SELECT status FROM cards WHERE id=?", (card_id,)
+            ).fetchone()["status"]
+        if status == "approved":
+            self._write_card_yaml(card)
+            self._rewrite_jsonl()
+            if self.on_approve is not None:
+                self.on_approve(card)
+        return card
+
+    def delete(self, card_id: str) -> None:
+        """刪除卡片；若為定稿卡片，同步移除 YAML/JSONL 與向量索引。"""
+        if self.get(card_id) is None:
+            raise KeyError(card_id)
+        with self._connect() as conn:
+            status = conn.execute(
+                "SELECT status FROM cards WHERE id=?", (card_id,)
+            ).fetchone()["status"]
+            conn.execute("DELETE FROM cards WHERE id=?", (card_id,))
+        if status == "approved":
+            yaml_file = self.approved_dir / "yaml" / f"{card_id}.yaml"
+            if yaml_file.exists():
+                yaml_file.unlink()
+            self._rewrite_jsonl()
+            if self.on_delete is not None:
+                self.on_delete(card_id)
+
+    def _write_card_yaml(self, card: KnowledgeCard) -> None:
+        (self.approved_dir / "yaml").mkdir(parents=True, exist_ok=True)
         (self.approved_dir / "yaml" / f"{card.id}.yaml").write_text(
             card.to_yaml(), encoding="utf-8"
         )
+
+    def _rewrite_jsonl(self) -> None:
+        """由 SQLite 的定稿卡片重新產生 cards.jsonl（編輯/刪除後保持一致）。"""
+        self.approved_dir.mkdir(parents=True, exist_ok=True)
+        approved = self.list_by_status("approved")
+        with (self.approved_dir / "cards.jsonl").open("w", encoding="utf-8") as f:
+            for card in approved:
+                f.write(
+                    json.dumps(card.model_dump(mode="json"), ensure_ascii=False) + "\n"
+                )
 
 
 def _row_to_card(row: sqlite3.Row) -> KnowledgeCard:
@@ -175,8 +237,10 @@ def _row_to_card(row: sqlite3.Row) -> KnowledgeCard:
         id=row["id"],
         標題=row["標題"],
         內容=row["內容"],
+        重點=json.loads(row["重點"]) if row["重點"] else [],
         標籤=json.loads(row["標籤"]),
         知識類型=row["知識類型"],
+        大分類=row["大分類"] if row["大分類"] else "",
         適用範圍=row["適用範圍"],
         信心等級=row["信心等級"],
         原始逐字稿=row["原始逐字稿"],

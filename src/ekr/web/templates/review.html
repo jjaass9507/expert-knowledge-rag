@@ -35,6 +35,11 @@
         </label>
 
         <label class="field">
+          <span class="label">重點<span class="hint">每行一條，速查用</span></span>
+          <textarea name="重點" rows="4" placeholder="每行一條重點">{{ card.重點 | join('\n') }}</textarea>
+        </label>
+
+        <label class="field">
           <span class="label">標籤<span class="hint">逗號分隔</span></span>
           <input type="text" name="標籤" value="{{ card.標籤 | join(', ') }}">
         </label>
@@ -45,6 +50,15 @@
             <select name="知識類型">
               {% for t in knowledge_types %}
               <option value="{{ t }}" {% if t == card.知識類型.value %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">設備大分類</span>
+            <select name="大分類">
+              <option value="" {% if not card.大分類 %}selected{% endif %}>（未分類）</option>
+              {% for g in categories %}
+              <option value="{{ g }}" {% if g == card.大分類 %}selected{% endif %}>{{ g }}</option>
               {% endfor %}
             </select>
           </label>

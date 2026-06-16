@@ -29,9 +29,12 @@ class Hit:
 
 
 def build_embedding_text(card: KnowledgeCard) -> str:
+    重點 = "；".join(card.重點)
     return (
         f"【標題】{card.標題}\n"
         f"【類型】{card.知識類型.value}\n"
+        f"【大分類】{card.大分類}\n"
+        f"【重點】{重點}\n"
         f"【內容】{card.內容}\n"
         f"【適用範圍】{card.適用範圍}"
     )
@@ -40,7 +43,9 @@ def build_embedding_text(card: KnowledgeCard) -> str:
 def build_metadata(card: KnowledgeCard) -> dict:
     return {
         "標籤": card.標籤,
+        "重點": card.重點,
         "知識類型": card.知識類型.value,
+        "大分類": card.大分類,
         "適用範圍": card.適用範圍,
         "信心等級": card.信心等級.value,
         "更新人": card.更新人,
@@ -93,6 +98,8 @@ class StubEmbedding:
 class VectorStore(Protocol):
     def upsert(self, card_id: str, vector: list[float], metadata: dict) -> None: ...
 
+    def delete(self, card_id: str) -> None: ...
+
     def search(
         self, vector: list[float], top_k: int = 5, 知識類型: str | None = None
     ) -> list[Hit]: ...
@@ -117,6 +124,13 @@ class QdrantStore:
         self.client.upsert(
             self.collection,
             points=[PointStruct(id=_uuid_from_id(card_id), vector=vector, payload={**metadata, "id": card_id})],
+        )
+
+    def delete(self, card_id: str) -> None:
+        from qdrant_client.models import PointIdsList
+
+        self.client.delete(
+            self.collection, points_selector=PointIdsList(points=[_uuid_from_id(card_id)])
         )
 
     def search(
@@ -146,6 +160,9 @@ class InMemoryStore:
 
     def upsert(self, card_id: str, vector: list[float], metadata: dict) -> None:
         self.points[card_id] = (vector, metadata)
+
+    def delete(self, card_id: str) -> None:
+        self.points.pop(card_id, None)
 
     def search(
         self, vector: list[float], top_k: int = 5, 知識類型: str | None = None
@@ -222,9 +239,29 @@ def build_embedding_store() -> tuple[Embedding, VectorStore]:
     return embedding, store
 
 
+def vector_enabled() -> bool:
+    return os.environ.get("EKR_VECTOR", "off").lower() != "off"
+
+
 def indexer_from_env():
     """回傳一個 on_approve(card) 函式；EKR_VECTOR=off 時回傳 None（不向量化）。"""
-    if os.environ.get("EKR_VECTOR", "off").lower() == "off":
+    if not vector_enabled():
         return None
     embedding, store = build_embedding_store()
     return lambda card: index_card(card, embedding, store)
+
+
+def hooks_from_env():
+    """回傳 (on_approve, on_delete, search) 三件套；EKR_VECTOR=off 時皆為 None。
+
+    三者共用同一 embedding/store。search(query, top_k, 知識類型) -> list[Hit]。
+    """
+    if not vector_enabled():
+        return None, None, None
+    embedding, store = build_embedding_store()
+    on_approve = lambda card: index_card(card, embedding, store)  # noqa: E731
+    on_delete = lambda card_id: store.delete(card_id)  # noqa: E731
+    search = lambda q, top_k=5, 知識類型=None: retrieve(  # noqa: E731
+        q, embedding, store, top_k=top_k, 知識類型=知識類型
+    )
+    return on_approve, on_delete, search

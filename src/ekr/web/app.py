@@ -1,6 +1,7 @@
-"""Flask 審核介面 —— 「校稿台 / 編輯室」。
+"""Flask 審核介面 —— 「EKR Intelligence」校稿台。
 
-路由薄薄一層覆在 storage / structurer 之上：清單、提交、左右校對審核、核准/退回/重整理。
+路由薄薄一層覆在 storage / structurer / vectorstore 之上：
+清單、提交、校對審核、核准/退回/重整理、定稿卡編輯/刪除、知識檢索。
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from flask import Flask, redirect, render_template, request, url_for
 
 from ..asr import from_env as asr_from_env
 from ..llm import from_env
-from ..models import Confidence, KnowledgeType
+from ..models import EQUIPMENT_CATEGORIES, Confidence, KnowledgeType
 from ..storage import Storage
 from ..structurer import refine_card, structure_transcript
 
@@ -36,21 +37,26 @@ def _transcribe_upload(file_storage) -> str:
 
 def create_app(storage: Storage | None = None) -> Flask:
     app = Flask(__name__)
+    searcher = None
     if storage is None:
-        from ..vectorstore import indexer_from_env
+        from ..vectorstore import hooks_from_env
 
-        storage = Storage(on_approve=indexer_from_env())
+        on_approve, on_delete, searcher = hooks_from_env()
+        storage = Storage(on_approve=on_approve, on_delete=on_delete)
     store = storage
 
     KNOWLEDGE_TYPES = [t.value for t in KnowledgeType]
     CONFIDENCES = [c.value for c in Confidence]
 
     @app.context_processor
-    def inject_nav():
-        # 側邊欄計數，所有頁面共用。
+    def inject_globals():
+        # 側邊欄計數與下拉選項，所有頁面共用。
         return {
             "nav_pending": len(store.list_by_status("pending")),
             "nav_approved": len(store.list_by_status("approved")),
+            "knowledge_types": KNOWLEDGE_TYPES,
+            "confidences": CONFIDENCES,
+            "categories": EQUIPMENT_CATEGORIES,
         }
 
     @app.route("/")
@@ -63,8 +69,7 @@ def create_app(storage: Storage | None = None) -> Flask:
 
     @app.route("/library")
     def library():
-        approved = store.list_by_status("approved")
-        return render_template("library.html", cards=approved)
+        return render_template("library.html", cards=store.list_by_status("approved"))
 
     @app.route("/library/<card_id>")
     def card_detail(card_id):
@@ -73,12 +78,38 @@ def create_app(storage: Storage | None = None) -> Flask:
             return "找不到此卡片", 404
         return render_template("card.html", card=card)
 
+    @app.route("/library/<card_id>/edit", methods=["GET", "POST"])
+    def edit_card(card_id):
+        card = store.get(card_id)
+        if card is None:
+            return "找不到此卡片", 404
+        if request.method == "POST":
+            _save_edits(store, card_id, request.form)
+            store.update_card(card_id)  # 重新驗證並同步 YAML/JSONL/向量
+            return redirect(url_for("card_detail", card_id=card_id))
+        return render_template("edit.html", card=card)
+
+    @app.route("/library/<card_id>/delete", methods=["POST"])
+    def delete_card(card_id):
+        store.delete(card_id)
+        return redirect(url_for("library"))
+
+    @app.route("/search")
+    def search():
+        q = request.args.get("q", "").strip()
+        知識類型 = request.args.get("type", "").strip() or None
+        results = _run_search(store, searcher, q, 知識類型) if q else None
+        return render_template(
+            "search.html", q=q, 知識類型=知識類型 or "", results=results,
+            semantic=searcher is not None,
+        )
+
     @app.route("/submit", methods=["GET", "POST"])
     def submit():
         if request.method == "POST":
             transcript = request.form.get("逐字稿", "").strip()
             更新人 = request.form.get("更新人", "").strip() or "匿名"
-            # 語音輸入（Phase 2）：若上傳音檔則先轉文字，再走同一結構化流程
+            # 語音輸入：若上傳音檔則先轉文字，再走同一結構化流程
             audio = request.files.get("音檔")
             if audio and audio.filename:
                 try:
@@ -95,10 +126,8 @@ def create_app(storage: Storage | None = None) -> Flask:
                 card = structure_transcript(transcript, from_env(), 更新人)
             except Exception as e:  # noqa: BLE001 — 結構化失敗如實回報給審核者
                 return render_template(
-                    "submit.html",
-                    error=f"結構化失敗：{e}",
-                    逐字稿=transcript,
-                    更新人=更新人,
+                    "submit.html", error=f"結構化失敗：{e}",
+                    逐字稿=transcript, 更新人=更新人,
                 )
             store.insert_pending(card)
             return redirect(url_for("review", card_id=card.id))
@@ -109,12 +138,7 @@ def create_app(storage: Storage | None = None) -> Flask:
         card = store.get(card_id)
         if card is None:
             return "找不到此卡片", 404
-        return render_template(
-            "review.html",
-            card=card,
-            knowledge_types=KNOWLEDGE_TYPES,
-            confidences=CONFIDENCES,
-        )
+        return render_template("review.html", card=card)
 
     @app.route("/review/<card_id>/approve", methods=["POST"])
     def approve(card_id):
@@ -132,7 +156,7 @@ def create_app(storage: Storage | None = None) -> Flask:
         card = store.get(card_id)
         if card is None:
             return "找不到此卡片", 404
-        # 先存下審核者當前的編輯，再依補充說明對話式重整理（Phase 4）
+        # 先存下審核者當前的編輯，再依補充說明對話式重整理
         _save_edits(store, card_id, request.form)
         card = store.get(card_id)
         feedback = request.form.get("補充說明", "").strip()
@@ -143,20 +167,13 @@ def create_app(storage: Storage | None = None) -> Flask:
                 new = structure_transcript(card.原始逐字稿, from_env(), card.更新人)
         except Exception as e:  # noqa: BLE001
             return render_template(
-                "review.html",
-                card=card,
-                knowledge_types=KNOWLEDGE_TYPES,
-                confidences=CONFIDENCES,
-                error=f"重新整理失敗：{e}",
+                "review.html", card=card, error=f"重新整理失敗：{e}"
             )
         store.update_fields(
             card_id,
-            標題=new.標題,
-            內容=new.內容,
-            標籤=new.標籤,
-            知識類型=new.知識類型.value,
-            適用範圍=new.適用範圍,
-            信心等級=new.信心等級.value,
+            標題=new.標題, 內容=new.內容, 重點=new.重點, 標籤=new.標籤,
+            知識類型=new.知識類型.value, 大分類=new.大分類,
+            適用範圍=new.適用範圍, 信心等級=new.信心等級.value,
         )
         return redirect(url_for("review", card_id=card_id))
 
@@ -165,15 +182,37 @@ def create_app(storage: Storage | None = None) -> Flask:
 
 def _save_edits(store: Storage, card_id: str, form) -> None:
     標籤 = [t.strip() for t in form.get("標籤", "").split(",") if t.strip()]
+    重點 = [r.strip() for r in form.get("重點", "").splitlines() if r.strip()]
     store.update_fields(
         card_id,
         標題=form.get("標題", "").strip(),
         內容=form.get("內容", "").strip(),
+        重點=重點,
         標籤=標籤,
         知識類型=form.get("知識類型", ""),
+        大分類=form.get("大分類", "").strip(),
         適用範圍=form.get("適用範圍", "").strip(),
         信心等級=form.get("信心等級", ""),
     )
+
+
+def _run_search(store: Storage, searcher, q: str, 知識類型: str | None) -> list[dict]:
+    """檢索：有向量化用語意檢索，否則對定稿卡片做關鍵字搜尋。回傳統一格式。"""
+    if searcher is not None:
+        hits = searcher(q, top_k=8, 知識類型=知識類型)
+        return [{"id": h.id, "score": h.score, **h.metadata} for h in hits]
+    out = []
+    for c in store.list_by_status("approved"):
+        if 知識類型 and c.知識類型.value != 知識類型:
+            continue
+        hay = " ".join([c.標題, c.內容, " ".join(c.標籤), " ".join(c.重點), c.大分類])
+        if q in hay:
+            out.append({
+                "id": c.id, "score": None, "標題": c.標題, "內容": c.內容,
+                "知識類型": c.知識類型.value, "大分類": c.大分類,
+                "信心等級": c.信心等級.value, "重點": c.重點,
+            })
+    return out
 
 
 if __name__ == "__main__":

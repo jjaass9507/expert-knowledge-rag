@@ -16,7 +16,13 @@ import yaml
 from pydantic import ValidationError
 
 from .llm import LLM
-from .models import LLM_FIELDS, Confidence, KnowledgeCard, KnowledgeType
+from .models import (
+    EQUIPMENT_CATEGORIES,
+    LLM_FIELDS,
+    Confidence,
+    KnowledgeCard,
+    KnowledgeType,
+)
 
 _VALID_TYPES = {t.value for t in KnowledgeType}
 _VALID_CONF = {c.value for c in Confidence}
@@ -99,14 +105,77 @@ def _parse_llm_fields(raw: str) -> dict:
 
 
 def _normalize_enums(fields: dict) -> dict:
-    """把列舉欄位收斂到合法值：模型若自創類別/等級，落到安全預設，交審核者修正。"""
+    """把列舉/受限欄位收斂到合法值：模型若自創類別/等級，落到安全預設，交審核者修正。"""
     t = fields.get("知識類型")
     if isinstance(t, str) and t.strip() not in _VALID_TYPES:
         fields["知識類型"] = "其他"
     c = fields.get("信心等級")
     if isinstance(c, str) and c.strip() not in _VALID_CONF:
         fields["信心等級"] = "中"
+    # 大分類非預設清單內則清空，交審核者用下拉選擇。
+    g = fields.get("大分類")
+    if isinstance(g, str) and g.strip() and g.strip() not in EQUIPMENT_CATEGORIES:
+        fields["大分類"] = ""
     return fields
+
+
+def _call_json(llm: LLM, system: str, human: str, max_retries: int = 1) -> dict:
+    """呼叫 LLM 並解析為 JSON 物件（含容錯與重試）；供萃取/濃縮等附加 pass 使用。"""
+    current = human
+    for attempt in range(max_retries + 1):
+        raw = llm.complete(system, current)
+        text = _strip_fence(raw or "")
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError:
+            data = None
+        if not isinstance(data, dict):
+            data = _extract_json_object(text)
+        if isinstance(data, dict):
+            return data
+        current = human + "\n\n請只輸出合法 JSON 物件。"
+    raise ValueError("附加 pass 輸出無法解析為 JSON 物件")
+
+
+def _as_str_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def enrich_card(card: KnowledgeCard, llm: LLM, max_retries: int = 1) -> KnowledgeCard:
+    """附加萃取 pass：抽出「重點」條列並濃縮「內容」。任一步失敗則優雅降級，不阻斷卡片。"""
+    重點: list[str] = []
+    try:
+        sys = _load_prompt("extract_system.txt")
+        hum = (
+            _load_prompt("extract_human.txt")
+            .replace("{標題}", card.標題)
+            .replace("{知識類型}", card.知識類型.value)
+            .replace("{內容}", card.內容)
+        )
+        重點 = _as_str_list(_call_json(llm, sys, hum, max_retries).get("重點"))
+    except (ValueError, yaml.YAMLError, KeyError):
+        重點 = []
+
+    內容 = card.內容
+    if 重點:
+        try:
+            sys = _load_prompt("condense_system.txt")
+            hum = (
+                _load_prompt("condense_human.txt")
+                .replace("{重點}", "\n".join(f"- {p}" for p in 重點))
+                .replace("{內容}", card.內容)
+            )
+            condensed = _call_json(llm, sys, hum, max_retries).get("內容")
+            if isinstance(condensed, str) and condensed.strip():
+                內容 = condensed.strip()
+        except (ValueError, yaml.YAMLError, KeyError):
+            內容 = card.內容
+
+    return card.model_copy(update={"重點": 重點, "內容": 內容})
 
 
 def _generate(
@@ -145,7 +214,9 @@ def structure_transcript(
         "最後更新": now or date.today().isoformat(),
     }
     system, human = _structure_prompts(transcript)
-    return _generate(llm, system, human, provenance, max_retries)
+    card = _generate(llm, system, human, provenance, max_retries)
+    # 附加萃取：抽重點 + 濃縮內容（失敗則保留原內容、重點留空）。
+    return enrich_card(card, llm, max_retries)
 
 
 def refine_card(
@@ -159,7 +230,7 @@ def refine_card(
     d = card.model_dump(mode="json")
     current = "\n".join(
         f"{k}: {d[k]}"
-        for k in ("標題", "內容", "標籤", "知識類型", "適用範圍", "信心等級")
+        for k in ("標題", "內容", "標籤", "知識類型", "大分類", "適用範圍", "信心等級")
     )
     system = _load_prompt("refine_system.txt")
     human = (
@@ -174,4 +245,5 @@ def refine_card(
         "更新人": card.更新人,
         "最後更新": now or date.today().isoformat(),
     }
-    return _generate(llm, system, human, provenance, max_retries)
+    refined = _generate(llm, system, human, provenance, max_retries)
+    return enrich_card(refined, llm, max_retries)

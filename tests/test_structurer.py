@@ -72,6 +72,15 @@ def test_missing_fields_surfaces_keys_and_raw():
         structure_transcript("x", llm, "技師", max_retries=0)
 
 
+def test_大分類_outside_preset_cleared():
+    bad = """{
+      "標題": "x", "內容": "y", "標籤": [], "知識類型": "其他",
+      "大分類": "不存在的設備", "適用範圍": "", "信心等級": "中"
+    }"""
+    card = structure_transcript("x", StubLLM(bad), "技師")
+    assert card.大分類 == ""   # 非預設清單 → 清空交審核者選
+
+
 def test_invalid_enum_values_coerced_to_safe_defaults():
     bad = """{
       "標題": "電流偏高",

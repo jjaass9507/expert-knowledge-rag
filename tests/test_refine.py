@@ -39,16 +39,16 @@ def test_refine_preserves_provenance_and_applies_changes():
 
 
 def test_refine_prompt_carries_card_and_feedback():
-    captured = {}
+    humans = []
 
     class Capture:
         def complete(self, system, human):
-            captured["system"] = system
-            captured["human"] = human
+            humans.append(human)
             return REFINED_JSON
 
     refine_card(CARD, "請補上型號", Capture())
-    human = captured["human"]
-    assert "壓力正常但電流偏高" in human  # 目前卡片
-    assert "請補上型號" in human  # 補充說明
-    assert CARD.原始逐字稿 in human  # 原始逐字稿
+    # 第一次呼叫為 refine pass（後續為萃取/濃縮附加 pass）
+    refine_human = humans[0]
+    assert "壓力正常但電流偏高" in refine_human  # 目前卡片
+    assert "請補上型號" in refine_human  # 補充說明
+    assert CARD.原始逐字稿 in refine_human  # 原始逐字稿

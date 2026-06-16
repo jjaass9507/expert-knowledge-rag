@@ -26,8 +26,22 @@ class Confidence(str, Enum):
     低 = "低"
 
 
-# LLM 只負責產出這些欄位；其餘 provenance 欄位由程式注入。
-LLM_FIELDS = ("標題", "內容", "標籤", "知識類型", "適用範圍", "信心等級")
+# 設備大分類預設清單（可依現場調整）；存為字串以允許新增/留空。
+EQUIPMENT_CATEGORIES = [
+    "空壓機",
+    "冰水主機",
+    "泵浦",
+    "冷卻水塔",
+    "鍋爐",
+    "配電/電氣",
+    "管路/閥件",
+    "儀控",
+    "其他",
+]
+
+
+# LLM pass-1 結構化負責的欄位；其餘 provenance 由程式注入，重點由 pass-2 萃取。
+LLM_FIELDS = ("標題", "內容", "標籤", "知識類型", "大分類", "適用範圍", "信心等級")
 
 
 class KnowledgeCard(BaseModel):
@@ -38,8 +52,10 @@ class KnowledgeCard(BaseModel):
     id: str
     標題: str
     內容: str
+    重點: list[str] = []
     標籤: list[str] = []
     知識類型: KnowledgeType
+    大分類: str = ""
     適用範圍: str = ""
     信心等級: Confidence
     原始逐字稿: str

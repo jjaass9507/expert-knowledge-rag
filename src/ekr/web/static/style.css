@@ -221,6 +221,53 @@ a:hover { text-decoration: underline; }
 .btn-ghost.danger { color: var(--red); }
 .btn-ghost.danger:hover { border-color: var(--red); background: rgba(255,143,134,0.08); }
 .btn-primary .ico, .btn-ghost .ico { width: 16px; height: 16px; }
+button:disabled { opacity: 0.6; cursor: progress; }
+.spin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  display: inline-block; animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 重點條列 */
+.points { margin: 0; padding-left: 18px; }
+.points li { margin: 4px 0; line-height: 1.6; }
+.points.lead {
+  list-style: none; padding: 0; margin: 0 0 18px;
+}
+.points.lead li {
+  position: relative; padding: 8px 12px 8px 28px; margin-bottom: 6px;
+  background: var(--surface-lowest); border: 1px solid var(--border);
+  border-left: 2px solid var(--primary); border-radius: 4px;
+}
+.points.lead li::before {
+  content: ""; position: absolute; left: 12px; top: 15px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--primary);
+}
+
+/* 搜尋 */
+.search-bar { display: flex; gap: 10px; margin-bottom: 24px; max-width: 760px; }
+.search-bar input[type="text"] {
+  flex: 1; font-family: var(--sans); font-size: 14px; color: var(--on-bg);
+  background: var(--surface-lowest); border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: 10px 12px;
+}
+.search-bar input:focus { outline: none; border-color: var(--primary); }
+.search-bar select {
+  background: var(--surface-lowest); border: 1px solid var(--border-strong);
+  color: var(--on-bg); border-radius: 6px; padding: 0 10px;
+}
+.search-meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+.result {
+  display: block; padding: 16px 18px; margin-bottom: 12px;
+  background: var(--surface-low); border: 1px solid var(--border); border-radius: 8px;
+}
+.result:hover { border-color: var(--border-strong); text-decoration: none; }
+.result-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.result-head .title { color: var(--on-bg); font-weight: 600; font-size: 15px; }
+.result-head .score { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--primary); }
+.result-body { color: var(--on-variant); font-size: 13px; line-height: 1.6; }
+.result .points { margin-top: 8px; color: var(--on-variant); font-size: 13px; }
 
 .notice-error {
   border-left: 3px solid var(--red); background: rgba(255,143,134,0.06);
