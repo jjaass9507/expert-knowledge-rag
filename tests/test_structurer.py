@@ -72,6 +72,20 @@ def test_missing_fields_surfaces_keys_and_raw():
         structure_transcript("x", llm, "技師", max_retries=0)
 
 
+def test_invalid_enum_values_coerced_to_safe_defaults():
+    bad = """{
+      "標題": "電流偏高",
+      "內容": "壓力正常但電流偏高。",
+      "標籤": ["電流"],
+      "知識類型": "技術知識",
+      "適用範圍": "",
+      "信心等級": "很高"
+    }"""
+    card = structure_transcript("x", StubLLM(bad), "技師")
+    assert card.知識類型.value == "其他"   # 自創類別 → 其他
+    assert card.信心等級.value == "中"     # 非法等級 → 中
+
+
 def test_human_prompt_contains_transcript():
     system, human = _structure_prompts("這是逐字稿內容")
     assert "這是逐字稿內容" in human

@@ -16,7 +16,10 @@ import yaml
 from pydantic import ValidationError
 
 from .llm import LLM
-from .models import LLM_FIELDS, KnowledgeCard
+from .models import LLM_FIELDS, Confidence, KnowledgeCard, KnowledgeType
+
+_VALID_TYPES = {t.value for t in KnowledgeType}
+_VALID_CONF = {c.value for c in Confidence}
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -95,6 +98,17 @@ def _parse_llm_fields(raw: str) -> dict:
     )
 
 
+def _normalize_enums(fields: dict) -> dict:
+    """把列舉欄位收斂到合法值：模型若自創類別/等級，落到安全預設，交審核者修正。"""
+    t = fields.get("知識類型")
+    if isinstance(t, str) and t.strip() not in _VALID_TYPES:
+        fields["知識類型"] = "其他"
+    c = fields.get("信心等級")
+    if isinstance(c, str) and c.strip() not in _VALID_CONF:
+        fields["信心等級"] = "中"
+    return fields
+
+
 def _generate(
     llm: LLM, system: str, human: str, provenance: dict, max_retries: int
 ) -> KnowledgeCard:
@@ -104,7 +118,7 @@ def _generate(
     for attempt in range(max_retries + 1):
         raw = llm.complete(system, current_human)
         try:
-            fields = _parse_llm_fields(raw)
+            fields = _normalize_enums(_parse_llm_fields(raw))
             return KnowledgeCard(**provenance, **fields)
         except (ValidationError, ValueError, yaml.YAMLError) as e:
             last_err = e
