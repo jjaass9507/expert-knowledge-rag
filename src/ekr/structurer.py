@@ -241,6 +241,43 @@ def enrich_card(card: KnowledgeCard, llm: LLM, max_retries: int = 1) -> Knowledg
     return card.model_copy(update={"重點": 重點, "內容": 內容})
 
 
+def complete_card(card: KnowledgeCard, llm: LLM, max_retries: int = 1) -> KnowledgeCard:
+    """補全 pass：依標題+內容，用 LLM 為「空白／預設」的結構化欄位產一版初稿。
+
+    只填目前缺漏的欄位，保留 stage-2 已給的有效值；任一步失敗則優雅降級回原卡。
+    """
+    try:
+        sys = _load_prompt("complete_card_system.txt")
+        hum = (
+            _load_prompt("complete_card_human.txt")
+            .replace("{標題}", card.標題)
+            .replace("{內容}", card.內容)
+        )
+        fields = _normalize_enums(_pick_card_fields(_call_json(llm, sys, hum, max_retries)))
+    except (ValueError, yaml.YAMLError):
+        return card
+
+    updates: dict = {}
+    for f in ("重點", "可回答問題", "標籤"):
+        if not getattr(card, f) and fields.get(f):
+            updates[f] = _as_str_list(fields[f])
+    for f in ("大分類", "適用範圍"):
+        v = fields.get(f)
+        if not getattr(card, f) and isinstance(v, str) and v.strip():
+            updates[f] = v.strip()
+    # 列舉欄位：僅在目前為預設值（其他／中）時，以推斷出的非預設值取代。
+    if card.知識類型.value == "其他" and fields.get("知識類型") not in (None, "其他"):
+        updates["知識類型"] = fields["知識類型"]
+    if card.信心等級.value == "中" and fields.get("信心等級") not in (None, "中"):
+        updates["信心等級"] = fields["信心等級"]
+    if not updates:
+        return card
+    # 以 KnowledgeCard 重建以重新驗證（model_copy 不會把字串值轉回列舉）。
+    data = card.model_dump()
+    data.update(updates)
+    return KnowledgeCard(**data)
+
+
 def _generate(
     llm: LLM, system: str, human: str, provenance: dict, max_retries: int
 ) -> KnowledgeCard:
@@ -425,9 +462,11 @@ def structure_transcripts(
         base_human = _load_prompt("structure_multi_human.txt").replace(
             "{transcript}", transcript
         )
-    return _cards_from_array_call(
+    cards = _cards_from_array_call(
         system, base_human, llm, transcript, 更新人, 最後更新, max_retries
     )
+    # 補全 pass：為每張卡的空白／預設欄位用 LLM 產一版初稿（重點/可回答問題/標籤/類型/分類/範圍/信心）。
+    return [complete_card(c, llm, max_retries) for c in cards]
 
 
 def refine_card(

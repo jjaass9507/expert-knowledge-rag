@@ -154,6 +154,10 @@ def test_structure_transcripts_minimal_keys_with_defaults():
     assert cards[0].信心等級.value == "中"
 
 
+META_JSON = ('{"重點":["補的重點"],"可回答問題":["補的問題？"],"標籤":["補標籤"],'
+             '"知識類型":"診斷","大分類":"泵浦","適用範圍":"P-101","信心等級":"高"}')
+
+
 def test_two_stage_extract_then_structure():
     from ekr.structurer import structure_transcripts
 
@@ -165,14 +169,46 @@ def test_two_stage_extract_then_structure():
             if "知識工程師" in system:  # 階段一：萃取知識單元
                 self.stages.append("extract")
                 return '{"知識": ["陳述A", "陳述B"]}'
+            if "補齊" in system:  # 階段三：補全空白欄位
+                self.stages.append("complete")
+                return META_JSON
             self.stages.append("structure")  # 階段二：結構化成卡
             return CARD_ARRAY
 
     llm = TwoStage()
     cards = structure_transcripts("一大段口述", llm, "Ken")
-    assert llm.stages == ["extract", "structure"]  # 兩階段都有跑
+    assert llm.stages[:2] == ["extract", "structure"]  # 先萃取再結構化
+    assert "complete" in llm.stages  # 補全 pass 有跑
     assert len(cards) == 2
     assert cards[0].標題 == "調高源頭壓力會增加耗電"
+    # 補全只填空白欄位：CARD_ARRAY 已有重點 → 不覆蓋；可回答問題原為空 → 補上。
+    assert cards[0].重點 == ["壓力每升1 bar耗電增約7%"]
+    assert cards[0].可回答問題 == ["補的問題？"]
+
+
+def test_completion_fills_sparse_card():
+    """模型在 stage-2 只給標題/內容 → 補全 pass 為其餘欄位產出初版。"""
+    from ekr.structurer import structure_transcripts
+
+    class Sparse:
+        def complete(self, system, human):
+            if "知識工程師" in system:
+                return '{"知識": ["命題A"]}'
+            if "補齊" in system:
+                return META_JSON
+            return '[{"標題":"只有標題","內容":"只有內容"}]'  # stage-2 稀疏輸出
+
+    cards = structure_transcripts("一段口述", Sparse(), "Ken")
+    assert len(cards) == 1
+    c = cards[0]
+    assert c.標題 == "只有標題" and c.內容 == "只有內容"
+    assert c.重點 == ["補的重點"]
+    assert c.可回答問題 == ["補的問題？"]
+    assert c.標籤 == ["補標籤"]
+    assert c.知識類型.value == "診斷"      # 由預設「其他」被補成推斷值
+    assert c.大分類 == "泵浦"
+    assert c.適用範圍 == "P-101"
+    assert c.信心等級.value == "高"          # 由預設「中」被補成推斷值
 
 
 def test_falls_back_to_direct_when_no_units():
