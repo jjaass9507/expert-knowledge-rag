@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS cards (
     標題 TEXT NOT NULL,
     內容 TEXT NOT NULL,
     重點 TEXT NOT NULL DEFAULT '[]',  -- JSON array
+    可回答問題 TEXT NOT NULL DEFAULT '[]',  -- JSON array
     標籤 TEXT NOT NULL,            -- JSON array
     知識類型 TEXT NOT NULL,
     大分類 TEXT NOT NULL DEFAULT '',
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS settings (
 # 既有資料庫的欄位補丁（欄名 → 欄定義）。
 _MIGRATIONS = {
     "重點": "TEXT NOT NULL DEFAULT '[]'",
+    "可回答問題": "TEXT NOT NULL DEFAULT '[]'",
     "大分類": "TEXT NOT NULL DEFAULT ''",
 }
 
@@ -114,15 +116,16 @@ class Storage:
         ts = _now()
         with self._connect() as conn:
             conn.execute(
-                """INSERT INTO cards (id, 標題, 內容, 重點, 標籤, 知識類型, 大分類,
+                """INSERT INTO cards (id, 標題, 內容, 重點, 可回答問題, 標籤, 知識類型, 大分類,
                    適用範圍, 信心等級, 原始逐字稿, 更新人, 最後更新,
                    status, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     card.id,
                     card.標題,
                     card.內容,
                     json.dumps(card.重點, ensure_ascii=False),
+                    json.dumps(card.可回答問題, ensure_ascii=False),
                     json.dumps(card.標籤, ensure_ascii=False),
                     card.知識類型.value,
                     card.大分類,
@@ -139,12 +142,12 @@ class Storage:
 
     def update_fields(self, card_id: str, **fields) -> None:
         """更新審核者編輯過的欄位（標題/內容/標籤/知識類型/適用範圍/信心等級）。"""
-        allowed = {"標題", "內容", "重點", "標籤", "知識類型", "大分類", "適用範圍", "信心等級"}
+        allowed = {"標題", "內容", "重點", "可回答問題", "標籤", "知識類型", "大分類", "適用範圍", "信心等級"}
         sets, vals = [], []
         for k, v in fields.items():
             if k not in allowed:
                 continue
-            if k in ("標籤", "重點") and isinstance(v, list):
+            if k in ("標籤", "重點", "可回答問題") and isinstance(v, list):
                 v = json.dumps(v, ensure_ascii=False)
             sets.append(f"{k}=?")
             vals.append(v)
@@ -258,6 +261,7 @@ def _row_to_card(row: sqlite3.Row) -> KnowledgeCard:
         標題=row["標題"],
         內容=row["內容"],
         重點=json.loads(row["重點"]) if row["重點"] else [],
+        可回答問題=json.loads(row["可回答問題"]) if row["可回答問題"] else [],
         標籤=json.loads(row["標籤"]),
         知識類型=row["知識類型"],
         大分類=row["大分類"] if row["大分類"] else "",

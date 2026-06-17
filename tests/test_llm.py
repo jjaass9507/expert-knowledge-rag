@@ -7,8 +7,10 @@ from ekr.llm import OpenAILLM, PensieveLLM, available_backends, build_llm
 
 
 class FakeResp:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200, text=""):
         self._payload = payload
+        self.status_code = status_code
+        self.text = text
 
     def raise_for_status(self):
         pass

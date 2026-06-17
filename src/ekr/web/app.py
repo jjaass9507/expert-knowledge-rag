@@ -193,8 +193,8 @@ def create_app(storage: Storage | None = None) -> Flask:
             )
         store.update_fields(
             card_id,
-            標題=new.標題, 內容=new.內容, 重點=new.重點, 標籤=new.標籤,
-            知識類型=new.知識類型.value, 大分類=new.大分類,
+            標題=new.標題, 內容=new.內容, 重點=new.重點, 可回答問題=new.可回答問題,
+            標籤=new.標籤, 知識類型=new.知識類型.value, 大分類=new.大分類,
             適用範圍=new.適用範圍, 信心等級=new.信心等級.value,
         )
         return redirect(url_for("review", card_id=card_id))
@@ -205,11 +205,13 @@ def create_app(storage: Storage | None = None) -> Flask:
 def _save_edits(store: Storage, card_id: str, form) -> None:
     標籤 = [t.strip() for t in form.get("標籤", "").split(",") if t.strip()]
     重點 = [r.strip() for r in form.get("重點", "").splitlines() if r.strip()]
+    可回答問題 = [q.strip() for q in form.get("可回答問題", "").splitlines() if q.strip()]
     store.update_fields(
         card_id,
         標題=form.get("標題", "").strip(),
         內容=form.get("內容", "").strip(),
         重點=重點,
+        可回答問題=可回答問題,
         標籤=標籤,
         知識類型=form.get("知識類型", ""),
         大分類=form.get("大分類", "").strip(),

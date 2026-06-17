@@ -30,6 +30,12 @@ def test_embedding_text_has_all_sections():
     assert "【類型】診斷" in text
     assert "【內容】" in text
     assert "【適用範圍】冰水主機" in text
+    assert "【可回答問題】" in text
+
+
+def test_embedding_text_includes_可回答問題():
+    card = CARD.model_copy(update={"可回答問題": ["電流偏高代表什麼？"]})
+    assert "電流偏高代表什麼？" in build_embedding_text(card)
 
 
 def test_metadata_includes_filter_fields():
@@ -37,6 +43,7 @@ def test_metadata_includes_filter_fields():
     assert md["知識類型"] == "診斷"
     assert md["信心等級"] == "中"
     assert md["標籤"] == ["電流", "壓縮機"]
+    assert md["可回答問題"] == []
 
 
 def test_index_card_upserts_vector_and_metadata():

@@ -36,6 +36,13 @@
     </dl>
     <div class="card-body">{{ card.內容 }}</div>
 
+    {% if card.可回答問題 %}
+    <div class="answerable">
+      <div class="answerable-head">可回答的問題</div>
+      <ul class="points">{% for q in card.可回答問題 %}<li>{{ q }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
     <details class="raw">
       <summary>原始逐字稿</summary>
       <blockquote class="transcript">{{ card.原始逐字稿 }}</blockquote>

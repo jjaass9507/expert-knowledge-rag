@@ -41,7 +41,7 @@ EQUIPMENT_CATEGORIES = [
 
 
 # LLM pass-1 結構化負責的欄位；其餘 provenance 由程式注入，重點由 pass-2 萃取。
-LLM_FIELDS = ("標題", "內容", "標籤", "知識類型", "大分類", "適用範圍", "信心等級")
+LLM_FIELDS = ("標題", "內容", "標籤", "知識類型", "大分類", "適用範圍", "信心等級", "可回答問題")
 
 
 class KnowledgeCard(BaseModel):
@@ -53,6 +53,7 @@ class KnowledgeCard(BaseModel):
     標題: str
     內容: str
     重點: list[str] = []
+    可回答問題: list[str] = []
     標籤: list[str] = []
     知識類型: KnowledgeType
     大分類: str = ""

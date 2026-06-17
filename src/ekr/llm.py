@@ -95,12 +95,14 @@ class OpenAILLM:
         api_key: str = "",
         verify_ssl: bool = False,
         timeout: int = 300,
+        json_mode: bool = False,
     ):
         self.url = url
         self.model = model
         self.api_key = api_key
         self.verify_ssl = verify_ssl
         self.timeout = timeout
+        self.json_mode = json_mode
 
     def complete(self, system: str, human: str) -> str:
         headers = {"Content-Type": "application/json"}
@@ -113,6 +115,8 @@ class OpenAILLM:
                 {"role": "user", "content": human},
             ],
         }
+        if self.json_mode:  # 選用；閘道需支援才開（OPENAI_JSON_MODE=true）
+            payload["response_format"] = {"type": "json_object"}
         resp = requests.post(
             self.url,
             json=payload,
@@ -121,8 +125,19 @@ class OpenAILLM:
             proxies={"http": None, "https": None},
             timeout=self.timeout,
         )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        # 官方錯誤為非 2xx + {"error":{...}}；把回傳內容帶進例外便於診斷。
+        if resp.status_code >= 400:
+            raise ValueError(f"OpenAI API 回傳 {resp.status_code}：{resp.text[:500]}")
+        data = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise ValueError(f"OpenAI API 未回傳 choices：{data}")
+        content = (choices[0].get("message") or {}).get("content")
+        if not content:
+            # 內容過濾／長度截斷／tool 呼叫等情形 content 可能為 null
+            reason = choices[0].get("finish_reason")
+            raise ValueError(f"OpenAI API 回傳空內容（finish_reason={reason}）")
+        return content
 
 
 # --- 後端選擇 ---
@@ -146,6 +161,7 @@ def build_llm(backend: str) -> LLM:
             api_key=os.environ.get("OPENAI_API_KEY", ""),
             verify_ssl=os.environ.get("OPENAI_VERIFY_SSL", "false").lower() == "true",
             timeout=int(os.environ.get("OPENAI_TIMEOUT", "300")),
+            json_mode=os.environ.get("OPENAI_JSON_MODE", "false").lower() == "true",
         )
     if backend == "stub":
         return StubLLM(_STUB_JSON)

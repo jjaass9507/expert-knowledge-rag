@@ -42,6 +42,14 @@ def test_update_fields(store):
     assert got.標籤 == ["A", "B"]
 
 
+def test_可回答問題_round_trip(store):
+    card = CARD.model_copy(update={"可回答問題": ["電流偏高代表什麼？", "如何判斷壓縮機負載？"]})
+    store.insert_pending(card)
+    assert store.get(card.id).可回答問題 == ["電流偏高代表什麼？", "如何判斷壓縮機負載？"]
+    store.update_fields(card.id, 可回答問題=["新問題？"])
+    assert store.get(card.id).可回答問題 == ["新問題？"]
+
+
 def test_approve_writes_jsonl_and_yaml(store, tmp_path):
     store.insert_pending(CARD)
     store.approve(CARD.id)
