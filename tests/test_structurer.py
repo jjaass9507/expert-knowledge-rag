@@ -258,3 +258,67 @@ def test_human_prompt_contains_transcript():
     system, human = _structure_prompts("這是逐字稿內容")
     assert "這是逐字稿內容" in human
     assert "知識管理助理" in system  # system 帶規則
+
+
+# --- qwen3 推理模型情境：輸出夾帶 <think>…</think>，且推理段含括號/大括號/冒號 ---
+# （這些字元會讓舊的貪婪正則 \{.*\} / \[.*\] 抓錯範圍而解析失敗，正是欄位全空的主因）
+THINK = (
+    "<think>\n讓我分析：這張卡需要哪些欄位 [標題, 內容, 重點]？"
+    "範例物件可能長這樣 {鍵: 值}，我先想清楚再輸出最終 JSON。\n</think>\n"
+)
+
+
+def test_strip_think_removes_reasoning_keeping_json():
+    from ekr.structurer import _strip_fence, _strip_think
+    assert _strip_think(THINK + GOOD_JSON).startswith("{")
+    # 經 _strip_fence（含剝除推理 + 去圍欄）後，仍是可解析的 JSON
+    assert json.loads(_strip_fence(THINK + GOOD_JSON))["標題"] == "電流偏高但壓力正常"
+    # 省略開頭 <think>、只有結尾 </think> 也能處理
+    assert _strip_think("一堆推理…</think>\n" + GOOD_JSON).startswith("{")
+
+
+def test_extract_knowledge_units_with_think_wrapper():
+    from ekr.structurer import _extract_knowledge_units
+    raw = THINK + '{"知識": ["命題A", "命題B"]}'
+    units = _extract_knowledge_units("逐字稿", StubLLM(raw))
+    assert units == ["命題A", "命題B"]  # 成功萃取，未因推理段而走後備回 []
+
+
+def test_complete_card_fills_through_think_wrapper():
+    from ekr.models import Confidence, KnowledgeCard, KnowledgeType
+    from ekr.structurer import complete_card
+    sparse = KnowledgeCard(
+        id="KB-test", 標題="只有標題", 內容="只有內容",
+        知識類型=KnowledgeType.其他, 信心等級=Confidence.中,
+        原始逐字稿="x", 更新人="K", 最後更新="2026-01-01",
+    )
+    out = complete_card(sparse, StubLLM(THINK + META_JSON))
+    assert out.可回答問題 == ["補的問題？"]
+    assert out.標籤 == ["補標籤"]
+    assert out.知識類型.value == "診斷"
+
+
+def test_structure_transcripts_end_to_end_with_think():
+    """三次 LLM 呼叫皆夾帶推理段 → 剝除後仍能解析，卡片欄位填滿。"""
+    from ekr.structurer import structure_transcripts
+
+    sparse_array = '[{"標題":"調高源頭壓力會增加耗電","內容":"每升1 bar耗電增約7%。"}]'
+
+    class ThinkingQwen:
+        def complete(self, system, human):
+            if "知識工程師" in system:               # 階段一
+                return THINK + '{"知識": ["命題A"]}'
+            if "補齊" in system:                      # 補全 pass
+                return THINK + META_JSON
+            return THINK + sparse_array              # 階段二（稀疏輸出）
+
+    cards = structure_transcripts("一段口述", ThinkingQwen(), "Ken")
+    assert len(cards) == 1
+    c = cards[0]
+    assert c.標題 == "調高源頭壓力會增加耗電"
+    assert c.重點 == ["補的重點"]
+    assert c.可回答問題 == ["補的問題？"]
+    assert c.標籤 == ["補標籤"]
+    assert c.知識類型.value == "診斷"
+    assert c.大分類 == "泵浦"
+    assert c.信心等級.value == "高"
