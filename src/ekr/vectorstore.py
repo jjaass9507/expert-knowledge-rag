@@ -30,11 +30,13 @@ class Hit:
 
 def build_embedding_text(card: KnowledgeCard) -> str:
     重點 = "；".join(card.重點)
+    可回答問題 = "；".join(card.可回答問題)
     return (
         f"【標題】{card.標題}\n"
         f"【類型】{card.知識類型.value}\n"
         f"【大分類】{card.大分類}\n"
         f"【重點】{重點}\n"
+        f"【可回答問題】{可回答問題}\n"
         f"【內容】{card.內容}\n"
         f"【適用範圍】{card.適用範圍}"
     )
@@ -44,6 +46,7 @@ def build_metadata(card: KnowledgeCard) -> dict:
     return {
         "標籤": card.標籤,
         "重點": card.重點,
+        "可回答問題": card.可回答問題,
         "知識類型": card.知識類型.value,
         "大分類": card.大分類,
         "適用範圍": card.適用範圍,

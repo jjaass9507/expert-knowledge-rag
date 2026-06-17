@@ -29,11 +29,14 @@ _VALID_CONF = {c.value for c in Confidence}
 
 # 欄位鍵別名 → 正規中文鍵（容忍簡體中文與英文鍵，以及常見的精簡命名）。
 _KEY_ALIASES = {
-    "标题": "標題", "title": "標題", "知識點": "標題", "知识点": "標題", "主題": "標題",
+    "标题": "標題", "title": "標題", "知識點": "標題", "知识点": "標題",
+    "主題": "標題", "主题": "標題", "topic": "標題", "subject": "標題", "heading": "標題",
     "内容": "內容", "content": "內容", "說明": "內容", "说明": "內容",
     "摘要": "內容", "描述": "內容", "summary": "內容", "description": "內容",
     "重点": "重點", "key_points": "重點", "keypoints": "重點",
     "points": "重點", "highlights": "重點",
+    "可回答的問題": "可回答問題", "可回答问题": "可回答問題", "問題": "可回答問題",
+    "问题": "可回答問題", "questions": "可回答問題", "faq": "可回答問題",
     "标签": "標籤", "tags": "標籤", "labels": "標籤", "keywords": "標籤",
     "知识类型": "知識類型", "type": "知識類型", "knowledge_type": "知識類型",
     "大分类": "大分類", "equipment": "大分類", "equipment_category": "大分類",
@@ -112,8 +115,12 @@ def _extract_json_array(text: str) -> list | None:
 
 
 def _pick_fields(data: dict) -> dict:
-    """只取 LLM 應負責的欄位，忽略多餘鍵。"""
-    return {k: data[k] for k in LLM_FIELDS if k in data}
+    """單卡路徑：只取 LLM 應負責的欄位（不做鍵正規化，維持嚴格缺欄位偵測）；清單欄位轉字串陣列。"""
+    out = {k: data[k] for k in LLM_FIELDS if k in data}
+    for list_field in ("重點", "可回答問題"):
+        if list_field in data:  # 重點不在 LLM_FIELDS，需直接從來源 dict 取
+            out[list_field] = _as_str_list(data[list_field])
+    return out
 
 
 def _parse_llm_fields(raw: str) -> dict:
@@ -276,12 +283,8 @@ def structure_transcript(
 
 
 def _pick_card_fields(d: dict) -> dict:
-    """正規化鍵後，取出結構化欄位（含重點）。"""
-    d = _normalize_keys(d)
-    out = {k: d[k] for k in LLM_FIELDS if k in d}
-    if "重點" in d:
-        out["重點"] = _as_str_list(d["重點"])
-    return out
+    """多卡路徑：先正規化鍵，再取出結構化欄位（清單欄位轉為字串陣列）。"""
+    return _pick_fields(_normalize_keys(d))
 
 
 def _dict_to_items(d: dict) -> list[dict]:

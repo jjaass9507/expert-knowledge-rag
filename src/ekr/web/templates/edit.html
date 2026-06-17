@@ -27,6 +27,11 @@
     </label>
 
     <label class="field">
+      <span class="label">可回答的問題<span class="hint">每行一題</span></span>
+      <textarea name="可回答問題" rows="3">{{ card.可回答問題 | join('\n') }}</textarea>
+    </label>
+
+    <label class="field">
       <span class="label">標籤<span class="hint">逗號分隔</span></span>
       <input type="text" name="標籤" value="{{ card.標籤 | join(', ') }}">
     </label>

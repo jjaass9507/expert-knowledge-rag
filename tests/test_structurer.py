@@ -196,6 +196,28 @@ def test_structure_transcripts_single_object_wrapped():
     assert cards[0].標題 == "電流偏高但壓力正常"
 
 
+def test_structure_transcripts_topic_content_keys_mapped():
+    # 重現 OpenAI 後端回傳 topic/content/source 的情形 → 仍能成卡
+    from ekr.structurer import structure_transcripts
+    out = ('[{"topic":"專案背景","content":"舊有做法是隨意調高源頭壓力","source":"逐字稿"},'
+           '{"topic":"新SOP","content":"改裝壓力感測器找瓶頸","source":"逐字稿"}]')
+    cards = structure_transcripts("一大段口述", StubLLM(out), "技師")
+    assert len(cards) == 2
+    assert cards[0].標題 == "專案背景"  # topic → 標題
+    assert cards[0].內容 == "舊有做法是隨意調高源頭壓力"  # content → 內容
+    assert cards[0].知識類型.value == "其他"  # 缺漏 → 預設
+    assert cards[0].信心等級.value == "中"
+
+
+def test_structure_transcripts_parses_可回答問題():
+    from ekr.structurer import structure_transcripts
+    out = ('[{"標題":"調高源頭壓力會增加耗電","內容":"每升1 bar耗電增約7%",'
+           '"可回答問題":["調高壓力會增加多少耗電？","為什麼不該隨意調高源頭壓力？"],'
+           '"知識類型":"經驗法則","信心等級":"高"}]')
+    cards = structure_transcripts("x", StubLLM(out), "技師")
+    assert cards[0].可回答問題 == ["調高壓力會增加多少耗電？", "為什麼不該隨意調高源頭壓力？"]
+
+
 def test_human_prompt_contains_transcript():
     system, human = _structure_prompts("這是逐字稿內容")
     assert "這是逐字稿內容" in human

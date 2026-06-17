@@ -319,6 +319,8 @@ button:disabled { opacity: 0.6; cursor: progress; }
   border-top: 1px solid var(--border); padding-top: 18px;
   line-height: 1.9; white-space: pre-wrap; color: var(--on-bg);
 }
+.answerable { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+.answerable-head { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
 .raw { margin-top: 18px; }
 .raw summary { cursor: pointer; color: var(--muted); font-size: 13px; font-family: var(--mono); }
 .raw .transcript { padding: 12px 0 0; }
