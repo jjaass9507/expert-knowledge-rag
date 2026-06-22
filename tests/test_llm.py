@@ -142,6 +142,22 @@ def test_openai_non_429_error_does_not_retry(monkeypatch):
     assert calls["post"] == 1  # 400 立即拋出，不重試
 
 
+def test_openai_logs_request_and_response(monkeypatch, caplog):
+    import logging
+
+    def fake_post(url, json=None, headers=None, **kwargs):
+        return FakeResp({"choices": [{"message": {"content": "回應內容XYZ"}}]})
+
+    monkeypatch.setattr(llm_mod.requests, "post", fake_post)
+    client = OpenAILLM(url="u", model="m")
+    with caplog.at_level(logging.DEBUG, logger="ekr.llm"):
+        client.complete("你是測試助理SYS", "使用者問題HUMAN")
+    text = caplog.text
+    assert "你是測試助理SYS" in text  # 送出的 system 有被記錄
+    assert "使用者問題HUMAN" in text  # 送出的 human 有被記錄
+    assert "回應內容XYZ" in text       # 模型原始回應有被記錄
+
+
 def test_available_backends_and_build(monkeypatch):
     monkeypatch.setenv("OPENAI_API_URL", "http://x")
     monkeypatch.setenv("OPENAI_MODEL", "m1")
