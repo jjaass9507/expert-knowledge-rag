@@ -206,7 +206,6 @@ def _call_json(llm: LLM, system: str, human: str, max_retries: int = 1) -> dict:
     raw = ""
     for attempt in range(max_retries + 1):
         raw = llm.complete(system, current)
-        log.debug("LLM 原始輸出（_call_json，第 %d 次）：%s", attempt, raw)
         text = _strip_fence(raw or "")
         try:
             data = yaml.safe_load(text)
@@ -263,8 +262,18 @@ def enrich_card(card: KnowledgeCard, llm: LLM, max_retries: int = 1) -> Knowledg
 
 
 def _needs_completion(card: KnowledgeCard) -> bool:
-    """三個 RAG 關鍵清單（重點/標籤/可回答問題）任一為空才需補全；皆有則視為夠完整、跳過補全呼叫。"""
-    return not (card.重點 and card.標籤 and card.可回答問題)
+    """卡片仍缺可由 LLM 推斷的欄位時才需補全；全有才跳過（避免無謂呼叫）。
+
+    觸發：三大清單（重點/標籤/可回答問題）任一為空、知識類型仍為預設「其他」、或大分類為空。
+    （適用範圍為空屬正常，不納入觸發條件。）
+    """
+    return (
+        not card.重點
+        or not card.標籤
+        or not card.可回答問題
+        or card.知識類型 == KnowledgeType.其他
+        or not card.大分類
+    )
 
 
 def complete_card(card: KnowledgeCard, llm: LLM, max_retries: int = 1) -> KnowledgeCard:
@@ -424,7 +433,6 @@ def _cards_from_array_call(
     for attempt in range(max_retries + 1):
         raw = llm.complete(system, human)
         last_raw = raw
-        log.debug("LLM 原始輸出（結構化卡片陣列，第 %d 次）：%s", attempt, raw)
         try:
             items = _parse_card_array(raw)
         except ValueError as e:

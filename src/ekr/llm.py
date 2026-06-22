@@ -16,6 +16,20 @@ import requests
 
 log = logging.getLogger(__name__)
 
+
+def _log_io(system: str, human: str, content: str, *, tag: str, status=None) -> None:
+    """記錄一次 LLM 呼叫：INFO 一行摘要、DEBUG 完整 prompt 與原始回應。"""
+    pass_hint = " ".join(system.split())[:40]
+    log.info(
+        "LLM[%s] %s｜human %d 字｜回應 %d 字%s",
+        tag, pass_hint, len(human or ""), len(content or ""),
+        f"｜HTTP {status}" if status is not None else "",
+    )
+    log.debug(
+        "LLM[%s] → system:\n%s\n→ human:\n%s\n← 回應:\n%s",
+        tag, system, human, content,
+    )
+
 # verify=False 會發出 InsecureRequestWarning，停用以免日誌噪音。
 try:
     from urllib3.exceptions import InsecureRequestWarning
@@ -71,7 +85,9 @@ class PensieveLLM:
         if not api_response.get("isSuccess"):
             raise ValueError(f"Pensieve API 回傳失敗：{api_response}")
         # Result 為 JSON 字串，交給 structurer 解析（yaml.safe_load 相容 JSON）。
-        return api_response.get("Result", "")
+        result = api_response.get("Result", "")
+        _log_io(system, human, result, tag="pensieve")
+        return result
 
 
 class StubLLM:
@@ -86,7 +102,9 @@ class StubLLM:
     def complete(self, system: str, human: str) -> str:
         i = min(self._i, len(self._responses) - 1)
         self._i += 1
-        return self._responses[i]
+        content = self._responses[i]
+        _log_io(system, human, content, tag="stub")
+        return content
 
 
 class OpenAILLM:
@@ -173,6 +191,7 @@ class OpenAILLM:
             # 內容過濾／長度截斷／tool 呼叫等情形 content 可能為 null
             reason = choices[0].get("finish_reason")
             raise ValueError(f"OpenAI API 回傳空內容（finish_reason={reason}）")
+        _log_io(system, human, content, tag="openai", status=resp.status_code)
         return content
 
 
