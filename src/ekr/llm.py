@@ -7,10 +7,14 @@ adapter 只做 (system, human) prompt 進、文字出，不認得知識卡片；
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from typing import Protocol
 
 import requests
+
+log = logging.getLogger(__name__)
 
 # verify=False 會發出 InsecureRequestWarning，停用以免日誌噪音。
 try:
@@ -88,6 +92,9 @@ class StubLLM:
 class OpenAILLM:
     """OpenAI 相容 /chat/completions API（Authorization: Bearer）。"""
 
+    # 速率限制(429)／暫時過載(503) 才重試；其餘錯誤立即拋出。
+    _RETRYABLE = (429, 503)
+
     def __init__(
         self,
         url: str,
@@ -96,6 +103,9 @@ class OpenAILLM:
         verify_ssl: bool = False,
         timeout: int = 300,
         json_mode: bool = False,
+        max_retries: int = 5,
+        backoff_base: float = 5.0,
+        backoff_cap: float = 60.0,
     ):
         self.url = url
         self.model = model
@@ -103,6 +113,19 @@ class OpenAILLM:
         self.verify_ssl = verify_ssl
         self.timeout = timeout
         self.json_mode = json_mode
+        self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self.backoff_cap = backoff_cap
+
+    def _wait_seconds(self, resp, attempt: int) -> float:
+        """優先遵守 Retry-After 標頭（數字秒）；否則指數退避。"""
+        retry_after = (getattr(resp, "headers", None) or {}).get("Retry-After")
+        try:
+            if retry_after is not None:
+                return min(self.backoff_cap, float(retry_after))
+        except (TypeError, ValueError):
+            pass  # 非數字（如 HTTP-date）則改用退避
+        return min(self.backoff_cap, self.backoff_base * 2 ** attempt)
 
     def complete(self, system: str, human: str) -> str:
         headers = {"Content-Type": "application/json"}
@@ -117,14 +140,27 @@ class OpenAILLM:
         }
         if self.json_mode:  # 選用；閘道需支援才開（OPENAI_JSON_MODE=true）
             payload["response_format"] = {"type": "json_object"}
-        resp = requests.post(
-            self.url,
-            json=payload,
-            headers=headers,
-            verify=self.verify_ssl,
-            proxies={"http": None, "https": None},
-            timeout=self.timeout,
-        )
+
+        resp = None
+        for attempt in range(self.max_retries + 1):
+            resp = requests.post(
+                self.url,
+                json=payload,
+                headers=headers,
+                verify=self.verify_ssl,
+                proxies={"http": None, "https": None},
+                timeout=self.timeout,
+            )
+            if resp.status_code in self._RETRYABLE and attempt < self.max_retries:
+                wait = self._wait_seconds(resp, attempt)
+                log.warning(
+                    "OpenAI API %s 速率限制，第 %d 次重試前等待 %.0fs",
+                    resp.status_code, attempt + 1, wait,
+                )
+                time.sleep(wait)
+                continue
+            break
+
         # 官方錯誤為非 2xx + {"error":{...}}；把回傳內容帶進例外便於診斷。
         if resp.status_code >= 400:
             raise ValueError(f"OpenAI API 回傳 {resp.status_code}：{resp.text[:500]}")
@@ -162,6 +198,7 @@ def build_llm(backend: str) -> LLM:
             verify_ssl=os.environ.get("OPENAI_VERIFY_SSL", "false").lower() == "true",
             timeout=int(os.environ.get("OPENAI_TIMEOUT", "300")),
             json_mode=os.environ.get("OPENAI_JSON_MODE", "false").lower() == "true",
+            max_retries=int(os.environ.get("OPENAI_MAX_RETRIES", "5")),
         )
     if backend == "stub":
         return StubLLM(_STUB_JSON)

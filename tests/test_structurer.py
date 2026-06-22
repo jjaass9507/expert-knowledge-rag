@@ -298,6 +298,33 @@ def test_complete_card_fills_through_think_wrapper():
     assert out.知識類型.value == "診斷"
 
 
+def test_structure_transcripts_skips_completion_when_rich():
+    """stage-2 已產出三清單皆備的完整卡 → 不再發補全（補齊）呼叫，省呼叫、避免 429。"""
+    from ekr.structurer import structure_transcripts
+
+    rich = ('[{"標題":"調高源頭壓力會增加耗電","內容":"每升1 bar耗電增約7%",'
+            '"重點":["每升1 bar耗電+7%"],"標籤":["壓力","耗電"],'
+            '"可回答問題":["調高壓力會多耗多少電？"],"知識類型":"經驗法則","信心等級":"高"}]')
+
+    class Recorder:
+        def __init__(self):
+            self.saw_complete = False
+
+        def complete(self, system, human):
+            if "知識工程師" in system:
+                return '{"知識": ["命題A"]}'
+            if "補齊" in system:
+                self.saw_complete = True
+                return META_JSON
+            return rich
+
+    llm = Recorder()
+    cards = structure_transcripts("x", llm, "Ken")
+    assert llm.saw_complete is False          # 完整卡 → 跳過補全呼叫
+    assert cards[0].重點 == ["每升1 bar耗電+7%"]
+    assert cards[0].可回答問題 == ["調高壓力會多耗多少電？"]
+
+
 def test_structure_transcripts_end_to_end_with_think():
     """三次 LLM 呼叫皆夾帶推理段 → 剝除後仍能解析，卡片欄位填滿。"""
     from ekr.structurer import structure_transcripts

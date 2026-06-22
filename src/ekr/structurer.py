@@ -262,6 +262,11 @@ def enrich_card(card: KnowledgeCard, llm: LLM, max_retries: int = 1) -> Knowledg
     return card.model_copy(update={"重點": 重點, "內容": 內容})
 
 
+def _needs_completion(card: KnowledgeCard) -> bool:
+    """三個 RAG 關鍵清單（重點/標籤/可回答問題）任一為空才需補全；皆有則視為夠完整、跳過補全呼叫。"""
+    return not (card.重點 and card.標籤 and card.可回答問題)
+
+
 def complete_card(card: KnowledgeCard, llm: LLM, max_retries: int = 1) -> KnowledgeCard:
     """補全 pass：依標題+內容，用 LLM 為「空白／預設」的結構化欄位產一版初稿。
 
@@ -489,8 +494,8 @@ def structure_transcripts(
     cards = _cards_from_array_call(
         system, base_human, llm, transcript, 更新人, 最後更新, max_retries
     )
-    # 補全 pass：為每張卡的空白／預設欄位用 LLM 產一版初稿（重點/可回答問題/標籤/類型/分類/範圍/信心）。
-    return [complete_card(c, llm, max_retries) for c in cards]
+    # 補全 pass：只對「仍稀疏」的卡多打一次 LLM 補欄位；已完整者跳過，省呼叫、降低速率限制壓力。
+    return [complete_card(c, llm, max_retries) if _needs_completion(c) else c for c in cards]
 
 
 def refine_card(

@@ -7,10 +7,11 @@ from ekr.llm import OpenAILLM, PensieveLLM, available_backends, build_llm
 
 
 class FakeResp:
-    def __init__(self, payload, status_code=200, text=""):
+    def __init__(self, payload, status_code=200, text="", headers=None):
         self._payload = payload
         self.status_code = status_code
         self.text = text
+        self.headers = headers or {}
 
     def raise_for_status(self):
         pass
@@ -87,6 +88,58 @@ def test_openai_payload_and_parsing(monkeypatch):
     ]
     assert captured["headers"]["Authorization"] == "Bearer ask_123"
     assert captured["kwargs"]["verify"] is False  # 內部自簽憑證
+
+
+def test_openai_retries_on_429_then_succeeds(monkeypatch):
+    OK = FakeResp({"choices": [{"message": {"content": "成功"}}]})
+    RATE = FakeResp({"error": {"type": "rate_limit_error"}}, status_code=429,
+                    text="rate limited", headers={"Retry-After": "20"})
+    responses = [RATE, RATE, OK]
+    calls = {"post": 0, "slept": []}
+
+    def fake_post(*a, **k):
+        r = responses[calls["post"]]
+        calls["post"] += 1
+        return r
+
+    monkeypatch.setattr(llm_mod.requests, "post", fake_post)
+    monkeypatch.setattr(llm_mod.time, "sleep", lambda s: calls["slept"].append(s))
+
+    client = OpenAILLM(url="u", model="m", max_retries=5)
+    assert client.complete("s", "h") == "成功"
+    assert calls["post"] == 3          # 兩次 429 + 一次成功
+    assert calls["slept"] == [20, 20]  # 遵守 Retry-After 標頭
+
+
+def test_openai_429_exhausts_retries_then_raises(monkeypatch):
+    RATE = FakeResp({"error": {}}, status_code=429, text="rate limited")
+    calls = {"post": 0}
+
+    def fake_post(*a, **k):
+        calls["post"] += 1
+        return RATE
+
+    monkeypatch.setattr(llm_mod.requests, "post", fake_post)
+    monkeypatch.setattr(llm_mod.time, "sleep", lambda s: None)
+
+    client = OpenAILLM(url="u", model="m", max_retries=2)  # 無 Retry-After → 指數退避
+    with pytest.raises(ValueError, match="429"):
+        client.complete("s", "h")
+    assert calls["post"] == 3  # 初次 + 2 次重試後仍 429 → 拋出
+
+
+def test_openai_non_429_error_does_not_retry(monkeypatch):
+    calls = {"post": 0}
+
+    def fake_post(*a, **k):
+        calls["post"] += 1
+        return FakeResp({"error": {}}, status_code=400, text="bad request")
+
+    monkeypatch.setattr(llm_mod.requests, "post", fake_post)
+    client = OpenAILLM(url="u", model="m", max_retries=5)
+    with pytest.raises(ValueError, match="400"):
+        client.complete("s", "h")
+    assert calls["post"] == 1  # 400 立即拋出，不重試
 
 
 def test_available_backends_and_build(monkeypatch):
